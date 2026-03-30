@@ -337,6 +337,12 @@ h1 {
 .streak-card-name { font-size: 0.75rem; color: #111; margin-bottom: 8px; }
 .streak-card-count { font-size: 1.4rem; font-weight: 700; color: #f59e0b; }
 .streak-card-label { font-size: 0.7rem; color: #111; }
+.streak-best-label {
+  font-size: 0.6rem;
+  color: rgba(0,0,0,0.45);
+  margin-top: 4px;
+  letter-spacing: 0.02em;
+}
 
 .streak-card-gratitude { border-color: #4a1d6a; }
 .streak-card-gratitude .streak-card-count { color: #c084fc; }
@@ -1025,6 +1031,35 @@ body.theme-wood .streak-card-gratitude .streak-card-count { color: #c084fc; }
   color: #aaa;
 }
 .world-btn:active { transform: scale(0.96); }
+
+/* Habit World — gold */
+.world-btn-habit { color: #d4a400; }
+.world-btn-habit .world-name { color: #f0c040; }
+.world-btn-habit.world-active {
+  background: rgba(240, 192, 64, 0.14);
+  border-color: rgba(240, 192, 64, 0.45);
+  color: #f0c040;
+}
+
+/* Fitness World — red/orange */
+.world-btn-fitness { color: #ef4444; }
+.world-btn-fitness .world-name { color: #f87171; }
+.world-btn-fitness.world-active, .world-btn-fitness.world-active-fitness {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #f87171;
+}
+
+/* Scholar World — purple */
+.world-btn-scholar { color: #a855f7; }
+.world-btn-scholar .world-name { color: #c084fc; }
+.world-btn-scholar.world-active, .world-btn-scholar.world-active-scholar {
+  background: rgba(168, 85, 247, 0.14);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #c084fc;
+}
+
+/* Legacy fallback */
 .world-btn.world-active {
   background: rgba(74, 222, 128, 0.12);
   border-color: rgba(74, 222, 128, 0.35);

@@ -1041,22 +1041,55 @@ const EMOJI_SEARCH_DATA = [
 ];
 
 function openEmojiSearch() {
-  const existing = document.getElementById('emoji-search-panel');
-  if (existing) { existing.remove(); return; }
+  // Remove any existing panel
+  document.getElementById('emoji-search-panel')?.remove();
+
   const panel = document.createElement('div');
   panel.id = 'emoji-search-panel';
   panel.className = 'emoji-search-panel';
   panel.innerHTML = `
     <div class="emoji-search-header">
-      <input type="text" id="emoji-search-input" class="emoji-search-input" placeholder="Search emoji..." oninput="filterEmojis(this.value)" autocomplete="off"/>
-      <button class="emoji-search-close" onclick="document.getElementById('emoji-search-panel')?.remove()">✕</button>
+      <div class="emoji-native-row">
+        <span class="emoji-native-label">Tap field, switch to emoji keyboard 👇</span>
+        <input type="text"
+               id="emoji-native-input"
+               class="emoji-native-input"
+               placeholder="😀 type an emoji..."
+               autocomplete="off"
+               autocorrect="off"
+               spellcheck="false"
+               oninput="handleNativeEmojiInput(this)" />
+      </div>
+      <div class="emoji-search-divider">— or search —</div>
+      <div class="emoji-search-row">
+        <input type="text" id="emoji-search-input" class="emoji-search-input" placeholder="Search emoji..." oninput="filterEmojis(this.value)" autocomplete="off"/>
+        <button class="emoji-search-close" onclick="document.getElementById('emoji-search-panel')?.remove()">✕</button>
+      </div>
     </div>
     <div class="emoji-search-grid" id="emoji-search-grid"></div>
   `;
   const wrap = document.querySelector('.emoji-picker-wrap');
   if (wrap) wrap.appendChild(panel);
-  filterEmojis('');
-  setTimeout(() => document.getElementById('emoji-search-input')?.focus(), 50);
+  // Focus the native input to trigger phone keyboard
+  setTimeout(() => {
+    const ni = document.getElementById('emoji-native-input');
+    if (ni) ni.focus();
+    filterEmojis('');
+  }, 80);
+}
+
+function handleNativeEmojiInput(input) {
+  const val = input.value;
+  if (!val) return;
+  // Extract the first emoji-like character using Unicode emoji range
+  // Works by checking each grapheme cluster
+  const emojiRegex = /\p{Emoji_Presentation}|\p{Extended_Pictographic}/gu;
+  const matches = val.match(emojiRegex);
+  if (matches && matches[0]) {
+    selectEmoji(matches[0]);
+    input.value = '';
+    document.getElementById('emoji-search-panel')?.remove();
+  }
 }
 
 function filterEmojis(query) {
@@ -1386,11 +1419,6 @@ function goTo(index) {
   }
   currentPage = index;
 
-  // Scroll destination page to top
-  const _pageIds = ['page-progress', 'page-habits', 'page-journal', 'page-friends'];
-  const _destPage = document.getElementById(_pageIds[index]);
-  if (_destPage) _destPage.scrollTop = 0;
-
   // Pop menu + profile back down on tab switch
   document.getElementById('hamburger-btn')?.classList.remove('scrolled-away');
   document.getElementById('profile-avatar-btn')?.classList.remove('scrolled-away');
@@ -1661,7 +1689,6 @@ function buildHabitCards() {
         <span class="habit-name">${h.name}</span>
         <span class="habit-difficulty-badge ${h.difficulty || 'medium'}">${(h.difficulty || 'medium') === 'easy' ? '🟢' : (h.difficulty || 'medium') === 'hard' ? '🔴' : '🟡'}</span>
       </div>
-      ${habitEditMode ? '' : (getBestStreak(h.id) > 0 ? `<span class="habit-best-streak">🏆 Best: ${getBestStreak(h.id)} days</span>` : '')}
       ${categoryEditControl}
       ${difficultyEditControl}
       ${colorEditControl}
@@ -1765,7 +1792,7 @@ function toggleHabit(habitId) {
     const todayData = reloadedData[today] || {};
     const allNowDone = allHabits.length > 0 && allHabits.every(h => !!todayData[h.id]);
     if (allNowDone && !_allHabitsDonePrev) {
-      setTimeout(() => showDailyRecap(), 800);
+      // daily recap popup disabled
     }
   });
 }
@@ -2463,6 +2490,7 @@ function renderProgress() {
             <span class="streak-fire">🔥</span>
           </div>
           <div class="streak-card-label">day streak</div>
+          ${getBestStreak(h.id) > 0 ? `<div class="streak-best-label">🏆 best: ${getBestStreak(h.id)}d</div>` : ''}
         </div>`;
     }).join('');
     const gratStreak = getGratitudeStreak();
@@ -2778,6 +2806,121 @@ function updateHabitsNavTab() {
 
 // ── FRIENDS ───────────────────────────────────────────────
 
+function renderManageFriendsSection(myData) {
+  const friends = myData.friends || [];
+  const mode = localStorage.getItem('habitSharingMode') || 'friends';
+
+  const friendRows = friends.length === 0
+    ? '<div class="mf-empty">No friends yet. Add one below!</div>'
+    : friends.map(uid => `
+        <div class="mf-friend-row" id="mf-row-${uid}">
+          <span class="mf-friend-name" id="mf-name-${uid}">Loading…</span>
+          <button class="mf-remove-btn" onclick="removeFriend('${uid}')">➖</button>
+        </div>`).join('');
+
+  // Load friend names asynchronously
+  if (friends.length > 0 && _fbDb) {
+    friends.forEach(uid => {
+      _fbDb.collection('users').doc(uid).get().then(doc => {
+        const el = document.getElementById('mf-name-' + uid);
+        if (el) el.textContent = doc.exists ? (doc.data().displayName || 'Unknown') : 'Unknown';
+      }).catch(() => {});
+    });
+  }
+
+  return `
+    <div class="manage-friends-card">
+      <div class="mf-header" onclick="this.closest('.manage-friends-card').classList.toggle('open')">
+        <span>👥 Manage Friends</span>
+        <span class="mf-toggle-arrow">▾</span>
+      </div>
+      <div class="mf-body">
+        <div class="mf-section-title">My Friends</div>
+        <div class="mf-friends-list">${friendRows}</div>
+
+        <div class="mf-section-title" style="margin-top:14px">Add Friend</div>
+        <div class="mf-add-row">
+          <input type="text" id="mf-username-input" class="mf-username-input" placeholder="Enter username..." autocomplete="off"/>
+          <button class="mf-add-btn" onclick="addFriendByUsername()">Add</button>
+        </div>
+        <div class="mf-add-status" id="mf-add-status"></div>
+
+        <div class="mf-section-title" style="margin-top:14px">Who sees my habits?</div>
+        <div class="mf-sharing-btns">
+          <button class="mf-share-btn${mode === 'private' ? ' active' : ''}" onclick="setHabitSharingMode('private')">🔒 Only Me</button>
+          <button class="mf-share-btn${mode === 'friends' ? ' active' : ''}" onclick="setHabitSharingMode('friends')">👥 Friends</button>
+          <button class="mf-share-btn${mode === 'everyone' ? ' active' : ''}" onclick="setHabitSharingMode('everyone')">🌍 Everyone</button>
+        </div>
+        <div class="mf-share-hint" id="mf-share-hint">${
+          mode === 'private' ? 'Your habits are hidden from everyone.' :
+          mode === 'friends' ? 'Your friends can see your habits.' :
+          'Anyone with your profile can see your habits.'
+        }</div>
+      </div>
+    </div>`;
+}
+
+function setHabitSharingMode(mode) {
+  localStorage.setItem('habitSharingMode', mode);
+  if (_currentUser && _fbDb) {
+    _fbDb.collection('users').doc(_currentUser.uid).update({ habitSharingMode: mode }).catch(() => {});
+  }
+  // Update button states without full re-render
+  document.querySelectorAll('.mf-share-btn').forEach(btn => btn.classList.remove('active'));
+  const labels = { private: '🔒 Only Me', friends: '👥 Friends', everyone: '🌍 Everyone' };
+  document.querySelectorAll('.mf-share-btn').forEach(btn => {
+    if (btn.textContent === labels[mode]) btn.classList.add('active');
+  });
+  const hint = document.getElementById('mf-share-hint');
+  if (hint) hint.textContent =
+    mode === 'private' ? 'Your habits are hidden from everyone.' :
+    mode === 'friends' ? 'Your friends can see your habits.' :
+    'Anyone with your profile can see your habits.';
+}
+
+async function addFriendByUsername() {
+  const input = document.getElementById('mf-username-input');
+  const status = document.getElementById('mf-add-status');
+  if (!input || !_fbDb || !_currentUser) return;
+  const username = input.value.trim().toLowerCase();
+  if (!username) return;
+  if (status) { status.textContent = 'Searching…'; status.style.color = '#888'; }
+  try {
+    const snap = await _fbDb.collection('users').where('username', '==', username).limit(1).get();
+    if (snap.empty) {
+      if (status) { status.textContent = 'No user found with that username.'; status.style.color = '#f87171'; }
+      return;
+    }
+    const friendUid = snap.docs[0].id;
+    if (friendUid === _currentUser.uid) {
+      if (status) { status.textContent = "That's you!"; status.style.color = '#f87171'; }
+      return;
+    }
+    await _fbDb.collection('users').doc(_currentUser.uid).update({
+      friends: firebase.firestore.FieldValue.arrayUnion(friendUid)
+    });
+    input.value = '';
+    if (status) { status.textContent = '✅ Friend added!'; status.style.color = '#4ade80'; }
+    setTimeout(() => renderFriends(), 800);
+  } catch(e) {
+    if (status) { status.textContent = 'Error: ' + (e.message || e.code); status.style.color = '#f87171'; }
+  }
+}
+
+async function removeFriend(uid) {
+  if (!_fbDb || !_currentUser) return;
+  const row = document.getElementById('mf-row-' + uid);
+  if (row) row.style.opacity = '0.4';
+  try {
+    await _fbDb.collection('users').doc(_currentUser.uid).update({
+      friends: firebase.firestore.FieldValue.arrayRemove(uid)
+    });
+    if (row) row.remove();
+  } catch(e) {
+    if (row) row.style.opacity = '1';
+  }
+}
+
 async function renderFriends() {
   const container = document.getElementById('friends-content');
   if (!container) return;
@@ -2856,7 +2999,7 @@ async function renderFriends() {
         bubbleItems.push(`<div class="friend-bubble-wrap${isFav ? ' fav-bubble' : ''}" onclick="openFriendModal('${safeUid}','${safeName}','${safePhoto}','${safeBio}')" style="cursor:pointer"><div class="friend-bubble">${avatarInner}</div><div class="friend-bubble-name">${name.split(' ')[0]}</div></div>`);
       });
     }
-    let html = `
+    let html = renderManageFriendsSection(myData) + `
       <div class="friends-row-wrap">
         <div class="friends-row" id="friends-bubbles-row">
           ${bubbleItems.join('')}
@@ -3128,8 +3271,12 @@ function _buildPersonCard(fd, uid, myData, today) {
     : initial;
   const habits = (fd.customHabits && fd.customHabits.length > 0) ? fd.customHabits : HABITS;
   const todayData = (fd.habitData && fd.habitData[today]) || {};
-  // Respect hidden habits setting
-  const habitsHidden = fd.habitsVisible === false;
+  // Respect hidden habits setting and habitSharingMode
+  const sharingMode = fd.habitSharingMode || 'everyone';
+  const myFriendsOfFriend = fd.friends || [];
+  const hiddenByMode = sharingMode === 'private' ||
+    (sharingMode === 'friends' && _currentUser && !myFriendsOfFriend.includes(_currentUser.uid));
+  const habitsHidden = fd.habitsVisible === false || hiddenByMode;
   const completedCount = habitsHidden ? 0 : habits.filter(h => !!todayData[h.id]).length;
   const totalCount = habitsHidden ? 0 : habits.length;
   const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -3291,22 +3438,12 @@ document.addEventListener('DOMContentLoaded', () => {
     pages.style.transition = '';
 
     if (Math.abs(dx) > 55) {
-      // Full page change — both pages go to top, save cleared
+      // Full page change — preserve scroll positions
       const prevPage = currentPage;
       if (dx < 0 && currentPage < 3) {
-        _pageScrollSave[prevPage] = 0;
-        const leaving = document.getElementById(PAGE_IDS[prevPage]);
-        if (leaving) leaving.scrollTop = 0;
         goTo(currentPage + 1);
-        const arriving = document.getElementById(PAGE_IDS[currentPage]);
-        if (arriving) arriving.scrollTop = 0;
       } else if (dx > 0 && currentPage > 0) {
-        _pageScrollSave[prevPage] = 0;
-        const leaving = document.getElementById(PAGE_IDS[prevPage]);
-        if (leaving) leaving.scrollTop = 0;
         goTo(currentPage - 1);
-        const arriving = document.getElementById(PAGE_IDS[currentPage]);
-        if (arriving) arriving.scrollTop = 0;
       } else {
         goTo(currentPage);
       }
@@ -4169,17 +4306,17 @@ function renderDrawerMenu() {
 
   document.getElementById('drawer-body').innerHTML = `
     <div class="worlds-switcher">
-      <div class="worlds-label">My Worlds</div>
+      <div class="worlds-label">Worlds 🌍</div>
       <div class="worlds-row">
-        <button class="world-btn${_currentWorld==='habit'?' world-active':''}" onclick="switchWorld('habit')">
-          <span class="world-icon">🌿</span>
+        <button class="world-btn world-btn-habit${_currentWorld==='habit'?' world-active':''}" onclick="switchWorld('habit')">
+          <span class="world-icon">🔥</span>
           <span class="world-name">Habit World</span>
         </button>
-        <button class="world-btn${_currentWorld==='fitness'?' world-active world-active-fitness':''}" onclick="switchWorld('fitness')">
+        <button class="world-btn world-btn-fitness${_currentWorld==='fitness'?' world-active world-active-fitness':''}" onclick="switchWorld('fitness')">
           <span class="world-icon">💪</span>
           <span class="world-name">Fitness World</span>
         </button>
-        <button class="world-btn${_currentWorld==='scholar'?' world-active world-active-scholar':''}" onclick="switchWorld('scholar')">
+        <button class="world-btn world-btn-scholar${_currentWorld==='scholar'?' world-active world-active-scholar':''}" onclick="switchWorld('scholar')">
           <span class="world-icon">📚</span>
           <span class="world-name">Scholar World</span>
         </button>
