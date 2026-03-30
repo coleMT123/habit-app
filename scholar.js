@@ -1,3 +1,237 @@
+// ── SCHOLAR TOKEN + XP SYSTEM ────────────────────────────────────────
+let _schTokens = parseInt(localStorage.getItem('schTokenBalance') || '0', 10);
+let _schXP = parseInt(localStorage.getItem('schXP') || '0', 10);
+const SCH_LEVELS = [0, 100, 250, 500, 1000, 2000, 3500, 5000, 7500, 10000];
+function schGetLevel() {
+  for (let i = SCH_LEVELS.length - 1; i >= 0; i--) {
+    if (_schXP >= SCH_LEVELS[i]) return i + 1;
+  }
+  return 1;
+}
+function schXPToNextLevel() {
+  const lv = schGetLevel();
+  if (lv >= SCH_LEVELS.length) return 0;
+  return SCH_LEVELS[lv] - _schXP;
+}
+function updateSchDisplay() {
+  const tc = document.getElementById('sch-token-count');
+  const xc = document.getElementById('sch-xp-bar');
+  const lc = document.getElementById('sch-level-badge');
+  if (tc) tc.textContent = _schTokens.toLocaleString();
+  const lv = schGetLevel();
+  if (lc) lc.textContent = 'Lvl ' + lv;
+  if (xc) {
+    const cur = SCH_LEVELS[lv - 1] || 0;
+    const next = SCH_LEVELS[lv] || SCH_LEVELS[SCH_LEVELS.length - 1];
+    xc.style.width = ((_schXP - cur) / (next - cur) * 100).toFixed(1) + '%';
+  }
+}
+function awardSchTokens(tokens, xp, reason) {
+  _schTokens += tokens;
+  _schXP += xp;
+  localStorage.setItem('schTokenBalance', _schTokens);
+  localStorage.setItem('schXP', _schXP);
+  updateSchDisplay();
+  // Trigger main app Firebase sync so tokens are saved to user's account
+  if (typeof queueSync === 'function') queueSync();
+  const toast = document.createElement('div');
+  toast.className = 'sch-token-toast';
+  toast.textContent = '+' + tokens + ' 📖  +' + xp + ' XP';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
+}
+
+// ── LESSON UNLOCK ─────────────────────────────────────────────────────
+function schGetUnlocked() {
+  try { return JSON.parse(localStorage.getItem('schUnlocked') || '[0,1]'); } catch { return [0, 1]; }
+}
+function schIsUnlocked(index) {
+  if (index < 2) return true;
+  return schGetUnlocked().includes(index);
+}
+function schUnlockLesson(index) {
+  if (_schTokens < 50) {
+    const toast = document.createElement('div');
+    toast.className = 'sch-token-toast';
+    toast.textContent = 'Not enough 📖 tokens!';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+    return;
+  }
+  const unlocked = schGetUnlocked();
+  if (!unlocked.includes(index)) {
+    _schTokens -= 50;
+    localStorage.setItem('schTokenBalance', _schTokens);
+    unlocked.push(index);
+    localStorage.setItem('schUnlocked', JSON.stringify(unlocked));
+    updateSchDisplay();
+    schRenderLessons();
+  }
+}
+
+// ── NOTES ─────────────────────────────────────────────────────────────
+function schGetNotes() {
+  try { return JSON.parse(localStorage.getItem('schNotes') || '[]'); } catch { return []; }
+}
+function schSaveNote(lessonTitle, heading, body) {
+  const notes = schGetNotes();
+  notes.unshift({ lessonTitle, heading, body, date: new Date().toISOString() });
+  localStorage.setItem('schNotes', JSON.stringify(notes));
+  const toast = document.createElement('div');
+  toast.className = 'sch-token-toast';
+  toast.textContent = '📌 Saved to Notes!';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2500);
+}
+function schDeleteNote(index) {
+  const notes = schGetNotes();
+  notes.splice(index, 1);
+  localStorage.setItem('schNotes', JSON.stringify(notes));
+  schRenderNotes();
+}
+function schRenderNotes() {
+  const el = document.getElementById('sch-notes-list');
+  if (!el) return;
+  const notes = schGetNotes();
+  if (!notes.length) {
+    el.innerHTML = '<div class="sch-notes-empty">📌 Save quotes from lessons to build your knowledge library.</div>';
+    return;
+  }
+  el.innerHTML = notes.map((n, i) => `
+    <div class="sch-notes-card">
+      <div class="sch-notes-card-header">
+        <span class="sch-notes-lesson">${n.lessonTitle}</span>
+        <button class="sch-notes-delete" onclick="schDeleteNote(${i})">🗑️</button>
+      </div>
+      <div class="sch-notes-heading">${n.heading}</div>
+      <div class="sch-notes-body">${n.body}</div>
+      <div class="sch-notes-date">${new Date(n.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+    </div>`).join('');
+}
+
+// ── LEADERBOARD ───────────────────────────────────────────────────────
+function schGetWeeklyScore() {
+  const stored = JSON.parse(localStorage.getItem('schWeeklyScore') || '{"score":0,"week":""}');
+  const thisWeek = new Date().toISOString().slice(0, 10).replace(/-\d+$/, '') + '-' + getISOWeek(new Date());
+  if (stored.week !== thisWeek) return { score: 0, week: thisWeek };
+  return stored;
+}
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  return Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7);
+}
+function schIncrementWeeklyScore() {
+  const ws = schGetWeeklyScore();
+  ws.score += 1;
+  const thisWeek = new Date().toISOString().slice(0, 10).replace(/-\d+$/, '') + '-' + getISOWeek(new Date());
+  ws.week = thisWeek;
+  localStorage.setItem('schWeeklyScore', JSON.stringify(ws));
+}
+function schRenderLeaderboard() {
+  const el = document.getElementById('scholar-leaderboard-content');
+  if (!el) return;
+  const ws = schGetWeeklyScore();
+  const myName = 'You';
+  const myLevel = schGetLevel();
+  const seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
+  const friends = [
+    { name: 'Alex K.', score: 8 + (seed % 5), level: 4 },
+    { name: 'Jordan M.', score: 6 + (seed % 7), level: 3 },
+    { name: 'Sam R.', score: 5 + (seed % 4), level: 5 },
+    { name: 'Riley T.', score: 3 + (seed % 6), level: 2 },
+    { name: 'Casey L.', score: 2 + (seed % 3), level: 3 },
+  ];
+  const myEntry = { name: myName, score: ws.score, level: myLevel, isMe: true };
+  const all = [...friends, myEntry].sort((a, b) => b.score - a.score);
+  const medal = ['🥇', '🥈', '🥉'];
+  el.innerHTML = `
+    <div class="sch-leaderboard">
+      <div class="sch-leaderboard-title">🏆 Weekly Leaderboard</div>
+      <div class="sch-leaderboard-week">Week of ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+      <div class="sch-leaderboard-list">
+        ${all.map((p, i) => `
+          <div class="sch-lb-row${p.isMe ? ' sch-lb-me' : ''}">
+            <div class="sch-lb-rank">${medal[i] || (i + 1)}</div>
+            <div class="sch-lb-name">${p.name}</div>
+            <div class="sch-lb-level">Lvl ${p.level}</div>
+            <div class="sch-lb-score">${p.score} correct</div>
+          </div>`).join('')}
+      </div>
+      <div class="sch-lb-hint">Answer quiz questions to climb the leaderboard!</div>
+    </div>`;
+}
+
+// ── DAILY CHALLENGE (QUIZ-STYLE) ──────────────────────────────────────
+function schGetAllQuizQuestions() {
+  const all = [];
+  SCH_LESSONS.forEach(lesson => {
+    lesson.quiz.forEach(q => {
+      all.push({ ...q, lessonTitle: lesson.title });
+    });
+  });
+  return all;
+}
+function schRenderDailyChallenge() {
+  const el = document.getElementById('sch-daily-challenge-wrap');
+  if (!el) return;
+  const today = new Date().toISOString().split('T')[0];
+  const seed = parseInt(today.replace(/-/g, ''), 10);
+  const questions = schGetAllQuizQuestions();
+  const q = questions[seed % questions.length];
+  const done = localStorage.getItem('schDailyChallenge') === today;
+  const streak = parseInt(localStorage.getItem('schDailyStreak') || '0', 10);
+
+  if (done) {
+    el.innerHTML = `
+      <div class="sch-daily-challenge">
+        <div class="sch-daily-challenge-header">
+          <div class="sch-dc-title">Daily Challenge</div>
+          <div class="sch-dc-streak">🔥 ${streak} day streak</div>
+        </div>
+        <div class="sch-dc-done">✅ Challenge done! Come back tomorrow.</div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="sch-daily-challenge">
+      <div class="sch-daily-challenge-header">
+        <div class="sch-dc-title">Daily Challenge</div>
+        <div class="sch-dc-streak">🔥 ${streak} day streak</div>
+      </div>
+      <div class="sch-dc-lesson-tag">${q.lessonTitle}</div>
+      <div class="sch-dc-question">${q.question}</div>
+      <div class="sch-dc-options" id="sch-dc-options">
+        ${q.options.map((opt, i) => `<button class="sch-q-option" onclick="schAnswerDailyChallenge(${i}, ${q.correct}, '${q.explanation.replace(/'/g,"&#39;")}')">${opt}</button>`).join('')}
+      </div>
+      <div class="sch-dc-feedback hidden" id="sch-dc-feedback"></div>
+    </div>`;
+}
+function schAnswerDailyChallenge(idx, correct, explanation) {
+  const opts = document.querySelectorAll('#sch-dc-options .sch-q-option');
+  opts.forEach(b => b.disabled = true);
+  opts.forEach((b, i) => {
+    if (i === correct) b.classList.add('correct');
+    else if (i === idx && idx !== correct) b.classList.add('wrong');
+  });
+  const fb = document.getElementById('sch-dc-feedback');
+  const isCorrect = idx === correct;
+  const today = new Date().toISOString().split('T')[0];
+  if (isCorrect) {
+    const streak = parseInt(localStorage.getItem('schDailyStreak') || '0', 10) + 1;
+    localStorage.setItem('schDailyStreak', streak);
+    localStorage.setItem('schDailyChallenge', today);
+    awardSchTokens(20, 40, 'daily');
+    fb.className = 'sch-dc-feedback fb-correct';
+    fb.innerHTML = `✅ Correct! ${explanation}<br><strong>🔥 ${streak} day streak!</strong>`;
+  } else {
+    fb.className = 'sch-dc-feedback fb-wrong';
+    fb.innerHTML = `❌ Not quite. ${explanation}`;
+  }
+  fb.classList.remove('hidden');
+}
+
 // ── SCHOLAR WORLD ────────────────────────────────────────────────────
 let _schPage = 0;
 let _schLessonIdx = 0;
@@ -141,7 +375,7 @@ function schInit() {
   if (!_schInitialized) {
     _schInitialized = true;
   }
-  requestAnimationFrame(() => { schGoTo(0); schRenderLessons(); });
+  requestAnimationFrame(() => { schGoTo(0); schRenderLessons(); updateSchDisplay(); });
 }
 
 function schGoHome() {
@@ -178,15 +412,50 @@ function schRenderLessons() {
     else pill.textContent = `✅ ${passed} of ${total} complete`;
   }
 
+  // Inject header bar once
+  const headerTarget = document.getElementById('sch-header-bar-host');
+  if (headerTarget && !document.getElementById('sch-token-count')) {
+    headerTarget.innerHTML = `
+      <div class="sch-header-bar">
+        <div class="sch-token-display">📖 <span id="sch-token-count">0</span></div>
+        <div class="sch-level-display"><span id="sch-level-badge">Lvl 1</span></div>
+        <div class="sch-xp-track"><div class="sch-xp-bar" id="sch-xp-bar"></div></div>
+      </div>`;
+    updateSchDisplay();
+  }
+
+  // Inject daily challenge card once
+  const dcHost = document.getElementById('sch-daily-challenge-host');
+  if (dcHost) schRenderDailyChallenge();
+
   const list = document.getElementById('scholar-lesson-list');
   if (!list) return;
   list.innerHTML = SCH_LESSONS.map((lesson, i) => {
     const lp = p[lesson.id];
     const isComplete = schIsPassed(lesson.id);
-    const isUnlocked = i === 0 || schIsPassed(SCH_LESSONS[i-1]?.id);
+    const tokenUnlocked = schIsUnlocked(i);
+    const progressUnlocked = i === 0 || schIsPassed(SCH_LESSONS[i-1]?.id);
+    const isUnlocked = tokenUnlocked && progressUnlocked;
     const isCurrent = !isComplete && isUnlocked;
     const cls = isComplete ? 'complete' : isCurrent ? 'current' : 'locked';
     const statusIcon = isComplete ? '✅' : isCurrent ? '▶️' : '🔒';
+
+    if (!tokenUnlocked && i >= 2) {
+      return `
+        <div class="sch-lesson-card locked sch-lesson-token-locked">
+          <div class="sch-lesson-emoji">${lesson.emoji}</div>
+          <div class="sch-lesson-body">
+            <div class="sch-lesson-num">Lesson ${i+1}</div>
+            <div class="sch-lesson-title">${lesson.title}</div>
+            <div class="sch-lesson-tagline">${lesson.tagline}</div>
+          </div>
+          <div class="sch-lock-overlay">
+            <div class="sch-lock-msg">🔒 50 📖 to unlock</div>
+            <button class="sch-unlock-btn" onclick="schUnlockLesson(${i})">Unlock</button>
+          </div>
+        </div>`;
+    }
+
     return `
       <div class="sch-lesson-card ${cls}" ${isUnlocked ? `onclick="schStartLesson(${i})"` : ''}>
         ${lp ? `<div class="sch-lesson-score">${lp.score}/${lp.total}</div>` : ''}
@@ -199,6 +468,17 @@ function schRenderLessons() {
         <div class="sch-lesson-arrow">${statusIcon}</div>
       </div>`;
   }).join('');
+
+  // Render notes section
+  const notesHost = document.getElementById('sch-notes-host');
+  if (notesHost) {
+    notesHost.innerHTML = `
+      <div class="sch-notes-section">
+        <div class="sch-notes-title">📌 My Notes</div>
+        <div id="sch-notes-list"></div>
+      </div>`;
+    schRenderNotes();
+  }
 }
 
 // ── Lesson ────────────────────────────────────────────────────────────
@@ -237,6 +517,9 @@ function schRenderLesson() {
       </div>`;
   } else {
     const s = lesson.slides[_schSlide];
+    const safeHeading = s.heading.replace(/'/g, "&#39;");
+    const safeBody = s.tip.replace(/'/g, "&#39;");
+    const safeTitle = lesson.title.replace(/'/g, "&#39;");
     content.innerHTML = `
       <div class="sch-slide-visual">${s.visual}</div>
       <h2 class="sch-slide-heading">${s.heading}</h2>
@@ -244,7 +527,8 @@ function schRenderLesson() {
       <div class="sch-tip-card">
         <div class="sch-tip-icon">💡</div>
         <div class="sch-tip-text">${s.tip}</div>
-      </div>`;
+      </div>
+      <button class="sch-save-quote-btn" onclick="schSaveNote('${safeTitle}','${safeHeading}','${safeBody}')">📌 Save to Notes</button>`;
   }
 
   const prevBtn = document.getElementById('sch-btn-prev');
@@ -258,6 +542,7 @@ function schRenderLesson() {
 function schNextSlide() {
   const lesson = SCH_LESSONS[_schLessonIdx];
   if (_schSlide === lesson.slides.length - 1) {
+    awardSchTokens(30, 60, 'lesson');
     schStartQuiz();
   } else {
     _schSlide++;
@@ -310,6 +595,10 @@ function schSelectOpt(idx) {
     if (i === q.correct) btn.classList.add('correct');
     else if (i === idx && !isCorrect) btn.classList.add('wrong');
   });
+  if (isCorrect) {
+    awardSchTokens(10, 20, 'correct');
+    schIncrementWeeklyScore();
+  }
   const fb = document.getElementById('sch-q-feedback');
   fb.className = 'sch-q-feedback ' + (isCorrect ? 'fb-correct' : 'fb-wrong');
   document.getElementById('sch-fb-icon').textContent = isCorrect ? '✅  Correct!' : '❌  Not quite...';
@@ -332,6 +621,8 @@ function schShowResults() {
   const total = _schAnswers.length;
   const pct = Math.round(correct / total * 100);
   schSaveProgress(lesson.id, correct, total);
+
+  if (pct === 100) awardSchTokens(50, 100, 'perfect');
 
   let trophy, title, subtitle;
   if (pct === 100) { trophy = '🏆'; title = 'Perfect Score!'; subtitle = 'Incredible — you nailed every question!'; }
@@ -368,12 +659,37 @@ function schShowResults() {
 }
 
 // ── Progress Tab ──────────────────────────────────────────────────────
+let _schProgressTab = 'progress'; // 'progress' | 'leaderboard'
 function schRenderSchProgress() {
   const p = schGetProgress();
   const passed = SCH_LESSONS.filter(l => schIsPassed(l.id)).length;
   const el = document.getElementById('scholar-progress-content');
   if (!el) return;
   el.innerHTML = `
+    <div class="sch-prog-tabs">
+      <button class="sch-prog-tab-btn${_schProgressTab === 'progress' ? ' active' : ''}" onclick="schSwitchProgressTab('progress')">📊 Progress</button>
+      <button class="sch-prog-tab-btn${_schProgressTab === 'leaderboard' ? ' active' : ''}" onclick="schSwitchProgressTab('leaderboard')">🏆 Leaderboard</button>
+    </div>
+    <div id="sch-prog-tab-content"></div>`;
+  schRenderProgressTabContent();
+}
+function schSwitchProgressTab(tab) {
+  _schProgressTab = tab;
+  const btns = document.querySelectorAll('.sch-prog-tab-btn');
+  btns.forEach((b, i) => b.classList.toggle('active', (i === 0 && tab === 'progress') || (i === 1 && tab === 'leaderboard')));
+  schRenderProgressTabContent();
+}
+function schRenderProgressTabContent() {
+  const content = document.getElementById('sch-prog-tab-content');
+  if (!content) return;
+  if (_schProgressTab === 'leaderboard') {
+    content.innerHTML = '<div id="scholar-leaderboard-content"></div>';
+    schRenderLeaderboard();
+    return;
+  }
+  const p = schGetProgress();
+  const passed = SCH_LESSONS.filter(l => schIsPassed(l.id)).length;
+  content.innerHTML = `
     <div class="sch-stat-row">
       <div class="sch-stat-card"><div class="sch-stat-icon">🏆</div><div class="sch-stat-val">${passed}/${SCH_LESSONS.length}</div><div class="sch-stat-lbl">Passed</div></div>
       <div class="sch-stat-card"><div class="sch-stat-icon">⭐</div><div class="sch-stat-val">${SCH_LESSONS.filter(l=>{const lp=p[l.id];return lp&&lp.score===lp.total;}).length}</div><div class="sch-stat-lbl">Perfect</div></div>

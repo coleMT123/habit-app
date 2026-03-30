@@ -386,6 +386,9 @@ async function syncToCloud() {
       exercise_locked:     localStorage.getItem('exercise_locked') || 'false',
       sleep_locked:        localStorage.getItem('sleep_locked') || 'false',
       tokenBalance:        _tokens,
+      fitTokenBalance:     parseInt(localStorage.getItem('fitTokenBalance') || '0', 10),
+      schTokenBalance:     parseInt(localStorage.getItem('schTokenBalance') || '0', 10),
+      schXP:               parseInt(localStorage.getItem('schXP') || '0', 10),
       habitsVisible:       localStorage.getItem('habitsVisible') !== 'false',
       username:            localStorage.getItem('username') || '',
       lastSync:            firebase.firestore.FieldValue.serverTimestamp(),
@@ -440,6 +443,28 @@ async function loadFromCloud() {
     if (d.sleep_locked)        localStorage.setItem('sleep_locked',        d.sleep_locked);
     if (d.favoriteFriends)     localStorage.setItem('favoriteFriends',     JSON.stringify(d.favoriteFriends));
     if (d.tokenBalance !== undefined) { _tokens = d.tokenBalance; localStorage.setItem('tokenBalance', _tokens); updateTokenDisplay(); }
+    // Restore fitness + scholar tokens — never overwrite local with a lower value to prevent resets
+    if (d.fitTokenBalance !== undefined) {
+      const localFit = parseInt(localStorage.getItem('fitTokenBalance') || '0', 10);
+      const cloudFit = d.fitTokenBalance;
+      const bestFit = Math.max(localFit, cloudFit);
+      localStorage.setItem('fitTokenBalance', bestFit);
+      // notify fitness.js if it's loaded
+      if (typeof updateFitTokenDisplay === 'function') { window._fitTokens = bestFit; updateFitTokenDisplay(); }
+    }
+    if (d.schTokenBalance !== undefined) {
+      const localSch = parseInt(localStorage.getItem('schTokenBalance') || '0', 10);
+      const cloudSch = d.schTokenBalance;
+      const bestSch = Math.max(localSch, cloudSch);
+      localStorage.setItem('schTokenBalance', bestSch);
+      if (typeof updateSchDisplay === 'function') { window._schTokens = bestSch; updateSchDisplay(); }
+    }
+    if (d.schXP !== undefined) {
+      const localXP = parseInt(localStorage.getItem('schXP') || '0', 10);
+      const bestXP = Math.max(localXP, d.schXP);
+      localStorage.setItem('schXP', bestXP);
+      if (typeof updateSchDisplay === 'function') { window._schXP = bestXP; updateSchDisplay(); }
+    }
     if (d.habitsVisible !== undefined) localStorage.setItem('habitsVisible', d.habitsVisible);
     if (d.username) localStorage.setItem('username', d.username);
     _checkOnboarding(d);
@@ -1443,6 +1468,42 @@ function getStreak(habitId, data) {
   return streak;
 }
 
+function getBestStreak(habitId) {
+  const data = loadData();
+  const today = getToday();
+  const todayParts = today.split('-');
+  // Collect all dates with data, sorted
+  const allDates = Object.keys(data).sort();
+  if (allDates.length === 0) return 0;
+  let best = 0;
+  let current = 0;
+  let prevDate = null;
+  allDates.forEach(dateStr => {
+    if (dateStr > today) return;
+    if (data[dateStr] && data[dateStr][habitId]) {
+      if (prevDate) {
+        // Check if consecutive
+        const prev = new Date(prevDate + 'T12:00:00');
+        const curr = new Date(dateStr + 'T12:00:00');
+        const diffDays = Math.round((curr - prev) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          current++;
+        } else {
+          current = 1;
+        }
+      } else {
+        current = 1;
+      }
+      prevDate = dateStr;
+      if (current > best) best = current;
+    } else {
+      prevDate = null;
+      current = 0;
+    }
+  });
+  return best;
+}
+
 function _getBestWeekScore() {
   const data = loadData();
   const habits = getHabits();
@@ -1553,8 +1614,40 @@ function buildHabitCards() {
            <option value="__new__">+ New category…</option>
          </select>`
       : '';
+
+    const DIFFICULTY_COLORS_MAP = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#a855f7','#ec4899','#ffffff'];
+    const difficultyEditControl = habitEditMode
+      ? `<div class="habit-difficulty-edit">
+           <span class="habit-edit-label">Difficulty:</span>
+           <button class="habit-diff-btn${(h.difficulty||'medium')==='easy'?' active':''}" onclick="updateHabitDifficulty('${h.id}','easy')">🟢 Easy</button>
+           <button class="habit-diff-btn${(h.difficulty||'medium')==='medium'?' active':''}" onclick="updateHabitDifficulty('${h.id}','medium')">🟡 Medium</button>
+           <button class="habit-diff-btn${(h.difficulty||'medium')==='hard'?' active':''}" onclick="updateHabitDifficulty('${h.id}','hard')">🔴 Hard</button>
+         </div>`
+      : '';
+
+    const colorEditControl = habitEditMode
+      ? `<div class="habit-color-edit">
+           <span class="habit-edit-label">Color:</span>
+           ${DIFFICULTY_COLORS_MAP.map(c => `<button class="habit-color-circle${(h.color||'#ffffff')=== c?' selected':''}" style="background:${c}" onclick="updateHabitColor('${h.id}','${c}')" title="${c}">${(h.color||'#ffffff')===c?'✓':''}</button>`).join('')}
+         </div>`
+      : '';
+
+    const otherHabits = getHabits().filter(oh => oh.id !== h.id);
+    const stackEditControl = habitEditMode
+      ? `<div class="habit-stack-edit">
+           <span class="habit-edit-label">Stack after:</span>
+           <select class="habit-stack-select" onchange="updateHabitStack('${h.id}',this.value)">
+             <option value=""${!h.stackAfter?' selected':''}>None</option>
+             ${otherHabits.map(oh => `<option value="${oh.id}"${h.stackAfter===oh.id?' selected':''}>${oh.emoji} ${oh.name}</option>`).join('')}
+           </select>
+         </div>`
+      : '';
+
+    const challengeEditControl = habitEditMode
+      ? `<button class="habit-challenge-btn" onclick="startChallenge('${h.id}')">🎯 Start 30-Day Challenge</button>`
+      : '';
     return `
-    <div class="habit-card" data-habit="${h.id}" ${habitEditMode ? 'draggable="true"' : ''}>
+    <div class="habit-card" data-habit="${h.id}" ${habitEditMode ? 'draggable="true"' : ''} style="${h.color ? `border-left:4px solid ${h.color}` : 'border-left:4px solid #ffffff22'}">
       <button class="remove-habit-btn" onclick="removeHabit('${h.id}')" title="Remove habit">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
@@ -1566,8 +1659,14 @@ function buildHabitCards() {
       <div class="habit-info">
         <span class="emoji">${h.emoji}</span>
         <span class="habit-name">${h.name}</span>
+        <span class="habit-difficulty-badge ${h.difficulty || 'medium'}">${(h.difficulty || 'medium') === 'easy' ? '🟢' : (h.difficulty || 'medium') === 'hard' ? '🔴' : '🟡'}</span>
       </div>
+      ${habitEditMode ? '' : (getBestStreak(h.id) > 0 ? `<span class="habit-best-streak">🏆 Best: ${getBestStreak(h.id)} days</span>` : '')}
       ${categoryEditControl}
+      ${difficultyEditControl}
+      ${colorEditControl}
+      ${stackEditControl}
+      ${challengeEditControl}
       <div class="habit-right">
         <span class="streak" id="streak-${h.id}">0 days</span>
         ${habitEditMode ? '' : `<button class="check-btn" id="btn-${h.id}" onclick="toggleHabit('${h.id}')">✓</button>`}
@@ -1617,6 +1716,13 @@ function buildHabitCards() {
   initDragAndDrop();
 }
 
+function _getDifficultyMultiplier(habit) {
+  const d = habit.difficulty || 'medium';
+  if (d === 'easy') return 1;
+  if (d === 'hard') return 3;
+  return 2; // medium default
+}
+
 function toggleHabit(habitId) {
   const data = loadData();
   const today = getToday();
@@ -1635,9 +1741,32 @@ function toggleHabit(habitId) {
     data[today][habitId] = true;
     if (navigator.vibrate) navigator.vibrate(50);
     const btn = document.getElementById('btn-' + habitId);
-    if (btn) awardTokens(2, btn);
+    const multiplier = _getDifficultyMultiplier(habit);
+    const tokenCount = 2 * multiplier;
+    if (btn) awardTokens(tokenCount, btn);
+    _tokens += tokenCount;
+    localStorage.setItem('tokenBalance', _tokens);
+    updateTokenDisplay();
     saveData(data);
+
+    // Check habit stacking — if any habit has stackAfter === this habitId, show toast
+    const allHabits = getHabits();
+    allHabits.forEach(h => {
+      if (h.stackAfter === habitId) {
+        setTimeout(() => _showBriefToast(`⚡ Stack: Time for ${h.emoji} ${h.name}!`), 400);
+      }
+    });
+
+    queueSync();
     render();
+
+    // Daily recap — check if all habits done now
+    const reloadedData = loadData();
+    const todayData = reloadedData[today] || {};
+    const allNowDone = allHabits.length > 0 && allHabits.every(h => !!todayData[h.id]);
+    if (allNowDone && !_allHabitsDonePrev) {
+      setTimeout(() => showDailyRecap(), 800);
+    }
   });
 }
 
@@ -1661,6 +1790,60 @@ function _showPromiseModal(habit, onConfirm) {
     overlay.remove();
     onConfirm();
   });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function showDailyRecap() {
+  document.getElementById('daily-recap-overlay')?.remove();
+  const today = getToday();
+  const data = loadData();
+  const todayData = data[today] || {};
+  const habits = getHabits();
+  const completedHabits = habits.filter(h => !!todayData[h.id]);
+  const totalTokensEarned = completedHabits.reduce((sum, h) => sum + 2 * _getDifficultyMultiplier(h), 0);
+
+  // Calculate current all-habits streak
+  let allDoneStreak = 0;
+  const todayParts = today.split('-');
+  let d = new Date(parseInt(todayParts[0]), parseInt(todayParts[1]) - 1, parseInt(todayParts[2]));
+  for (let i = 0; i < 365; i++) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const key = `${y}-${m}-${day}`;
+    const dayData = data[key] || {};
+    if (habits.every(h => !!dayData[h.id])) {
+      allDoneStreak++;
+      d.setDate(d.getDate() - 1);
+    } else if (key !== today) {
+      break;
+    } else {
+      d.setDate(d.getDate() - 1);
+    }
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'daily-recap-overlay';
+  overlay.className = 'daily-recap-overlay';
+  overlay.innerHTML = `
+    <div class="daily-recap-modal">
+      <div class="daily-recap-heading">✅ Day Complete!</div>
+      <div class="daily-recap-stat">
+        <span class="daily-recap-stat-num">${completedHabits.length}</span>
+        <span class="daily-recap-stat-label">habits done today</span>
+      </div>
+      <div class="daily-recap-stat">
+        <span class="daily-recap-stat-num">🔥 ${totalTokensEarned}</span>
+        <span class="daily-recap-stat-label">tokens earned today</span>
+      </div>
+      ${allDoneStreak > 0 ? `<div class="daily-recap-stat">
+        <span class="daily-recap-stat-num">${allDoneStreak}</span>
+        <span class="daily-recap-stat-label">day streak — all habits done!</span>
+      </div>` : ''}
+      <div class="daily-recap-motivate">🔥 Keep it up!</div>
+      <button class="daily-recap-close" onclick="document.getElementById('daily-recap-overlay').remove()">Close</button>
+    </div>`;
+  document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
@@ -3044,49 +3227,106 @@ document.addEventListener('DOMContentLoaded', () => {
   const pages = document.getElementById('pages');
   const nav = document.querySelector('.bottom-nav');
 
-  // Peek/drag swipe between pages — follows finger in real time
+  // ── Peek/drag swipe between pages ─────────────────────────────────────────
+  // Rules:
+  //  1. Vertical scroll ALWAYS wins — more vertical than horizontal = no swipe
+  //  2. Full page change: both old page and new page reset scroll to top
+  //  3. Snap-back (partial swipe, same page): restore saved scroll position
+  //  4. Scroll position per page is saved live and cleared on full page change
+  const PAGE_IDS = ['page-progress', 'page-habits', 'page-journal', 'page-friends'];
+  const _pageScrollSave = [0, 0, 0, 0];
+
   let swipeBlocked = false;
   let _swipeDragging = false;
   let _swipeStartX = 0;
+  let _swipeStartY = 0;
+  let _swipeDirectionLocked = null; // 'h' | 'v' | null
 
   pages.addEventListener('touchstart', e => {
-    // Block swipe on interactive elements and in edit mode
     swipeBlocked = !!e.target.closest(
       'textarea, input, button, select, .grateful-item, .habit-card, .check-btn, ' +
       '.grateful-check, .emoji-dropdown, .friends-row, .friends-row-wrap, ' +
-      '.add-habit-form, .emoji-search-popup'
+      '.add-habit-form, .emoji-search-popup, .fit-slider, .fit-range-input'
     ) || document.getElementById('habit-list')?.classList.contains('edit-mode');
     _swipeStartX = e.touches[0].clientX;
+    _swipeStartY = e.touches[0].clientY;
     _swipeDragging = false;
+    _swipeDirectionLocked = null;
   }, { passive: true });
 
   pages.addEventListener('touchmove', e => {
     if (swipeBlocked) return;
-    const diff = _swipeStartX - e.touches[0].clientX;
-    if (Math.abs(diff) > 10) {
+    const dx = e.touches[0].clientX - _swipeStartX;
+    const dy = e.touches[0].clientY - _swipeStartY;
+
+    // Lock scroll direction on first clear movement
+    if (!_swipeDirectionLocked && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      _swipeDirectionLocked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+    }
+
+    // Vertical wins — cancel any swipe visual, let native scroll work
+    if (_swipeDirectionLocked === 'v') {
+      if (_swipeDragging) {
+        pages.style.transition = '';
+        pages.style.transform = `translateX(${-currentPage * 100}vw)`;
+        _swipeDragging = false;
+      }
+      return;
+    }
+
+    if (_swipeDirectionLocked === 'h') {
+      e.preventDefault(); // block vertical drift during horizontal swipe
       _swipeDragging = true;
-      // Clamp: rubber-band if at edges
-      let dragPct = -(diff / window.innerWidth) * 100;
-      if (currentPage === 0 && dragPct > 0) dragPct = dragPct * 0.2; // rubber-band left
-      if (currentPage === 3 && dragPct < 0) dragPct = dragPct * 0.2; // rubber-band right
+      let dragPct = (dx / window.innerWidth) * 100;
+      if (currentPage === 0 && dragPct > 0) dragPct *= 0.18; // rubber-band left edge
+      if (currentPage === 3 && dragPct < 0) dragPct *= 0.18; // rubber-band right edge
       pages.style.transition = 'none';
       pages.style.transform = `translateX(calc(${-currentPage * 100}vw + ${dragPct}vw))`;
     }
-  }, { passive: true });
+  }, { passive: false });
 
   pages.addEventListener('touchend', e => {
-    if (swipeBlocked) return;
-    const diff = _swipeStartX - e.changedTouches[0].clientX;
+    if (swipeBlocked || !_swipeDragging) { _swipeDragging = false; _swipeDirectionLocked = null; return; }
+    const dx = e.changedTouches[0].clientX - _swipeStartX;
     pages.style.transition = '';
-    if (_swipeDragging && Math.abs(diff) > 55) {
-      if (diff > 0 && currentPage < 3) goTo(currentPage + 1);
-      else if (diff < 0 && currentPage > 0) goTo(currentPage - 1);
-      else goTo(currentPage);
-    } else if (_swipeDragging) {
-      goTo(currentPage); // snap back
+
+    if (Math.abs(dx) > 55) {
+      // Full page change — both pages go to top, save cleared
+      const prevPage = currentPage;
+      if (dx < 0 && currentPage < 3) {
+        _pageScrollSave[prevPage] = 0;
+        const leaving = document.getElementById(PAGE_IDS[prevPage]);
+        if (leaving) leaving.scrollTop = 0;
+        goTo(currentPage + 1);
+        const arriving = document.getElementById(PAGE_IDS[currentPage]);
+        if (arriving) arriving.scrollTop = 0;
+      } else if (dx > 0 && currentPage > 0) {
+        _pageScrollSave[prevPage] = 0;
+        const leaving = document.getElementById(PAGE_IDS[prevPage]);
+        if (leaving) leaving.scrollTop = 0;
+        goTo(currentPage - 1);
+        const arriving = document.getElementById(PAGE_IDS[currentPage]);
+        if (arriving) arriving.scrollTop = 0;
+      } else {
+        goTo(currentPage);
+      }
+    } else {
+      // Snap back — restore this page's scroll position exactly where user left it
+      goTo(currentPage);
+      const pageEl = document.getElementById(PAGE_IDS[currentPage]);
+      if (pageEl && _pageScrollSave[currentPage] > 0) {
+        requestAnimationFrame(() => { pageEl.scrollTop = _pageScrollSave[currentPage]; });
+      }
     }
     _swipeDragging = false;
+    _swipeDirectionLocked = null;
   }, { passive: true });
+
+  // Save scroll position live so snap-back can restore it
+  PAGE_IDS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('scroll', () => { _pageScrollSave[i] = el.scrollTop; }, { passive: true });
+  });
 
   // Bottom nav always stays visible — never hide on scroll
 

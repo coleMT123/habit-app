@@ -2,6 +2,25 @@
 let _fitPage = 0;
 let _fitScanIndex = 0;
 let _fitInitialized = false;
+
+// ── FIT TOKEN SYSTEM ──────────────────────────────────────────────────
+let _fitTokens = parseInt(localStorage.getItem('fitTokenBalance') || '0', 10);
+function updateFitTokenDisplay() {
+  const el = document.getElementById('fit-token-count');
+  if (el) el.textContent = _fitTokens.toLocaleString();
+}
+function awardFitTokens(n, reason) {
+  _fitTokens += n;
+  localStorage.setItem('fitTokenBalance', _fitTokens);
+  updateFitTokenDisplay();
+  // Trigger main app Firebase sync so tokens are saved to user's account
+  if (typeof queueSync === 'function') queueSync();
+  const toast = document.createElement('div');
+  toast.className = 'fit-token-toast';
+  toast.textContent = '+' + n + ' 💪';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 2000);
+}
 let _fitBuilderQueue = []; // { uid, name, emoji, cat, secs }
 let _fitBuilderCat = 'All';
 let _fitTimerActive = false;
@@ -104,21 +123,25 @@ function fitInit() {
     );
   }
   requestAnimationFrame(() => fitGoTo(0));
+  updateFitTokenDisplay();
 }
 
 function fitGoTo(n) {
   _fitPage = n;
   const pages = document.getElementById('pages-fitness');
   if (pages) pages.style.transform = `translateX(${-n * 100}vw)`;
-  [0,1,2,3].forEach(i => {
+  [0,1,2,3,4].forEach(i => {
     const btn = document.getElementById('fnav-' + i);
     if (btn) btn.classList.toggle('active', i === n);
   });
+  const totalTabs = 5;
+  const tabWidth = 100 / totalTabs;
   const ind = document.getElementById('nav-indicator-fitness');
-  if (ind) ind.style.left = (n * 25 + 25 * 0.2) + '%';
+  if (ind) ind.style.left = (n * tabWidth + tabWidth * 0.2) + '%';
   if (n === 0) fitRenderToday();
   if (n === 1) fitRenderBuilder();
   if (n === 3) fitRenderProgress();
+  if (n === 4) fitRenderPRs();
 }
 
 // ── TODAY ─────────────────────────────────────────────────────────────
@@ -135,6 +158,7 @@ function fitRenderToday() {
   if (!el) return;
 
   el.innerHTML = `
+    <div class="fit-token-header">💪 <span id="fit-token-count">0</span> tokens</div>
     <div class="fit-summary-bar">
       <span class="fit-summary-count">${doneCount}</span>
       <span class="fit-summary-label"> workout${doneCount !== 1 ? 's' : ''} logged today</span>
@@ -163,6 +187,8 @@ function fitRenderToday() {
   fitBindRecoveryEvents(today);
   fitBindVitaminEvents(today);
   fitBindScanEvents();
+  fitRenderMeasurements();
+  updateFitTokenDisplay();
 }
 
 // ── BUILDER ───────────────────────────────────────────────────────────
@@ -268,6 +294,7 @@ function fitStartWorkout() {
   const overlay = document.getElementById('fit-timer-overlay');
   if (overlay) overlay.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+  awardFitTokens(10, 'started workout');
   fitTimerShowStep();
 }
 
@@ -350,8 +377,10 @@ function fitTimerEnd() {
   const d = fitGetData();
   const today = fitGetToday();
   if (!d[today]) d[today] = {};
-  d[today]['__builder__' + Date.now()] = { moves: _fitTimerQueue.length };
+  d[today]['__builder__' + Date.now()] = { moves: _fitTimerQueue.length, ts: Date.now() };
   fitSaveData(d);
+
+  awardFitTokens(25, 'completed workout');
 }
 
 // ── EXERCISES ─────────────────────────────────────────────────────────
@@ -418,6 +447,8 @@ function fitRenderProgress() {
           </div>`).join('')}
       </div>
     </div>`;
+
+  fitRenderCalendar();
 }
 
 // ── NUTRITION HELPERS ─────────────────────────────────────────────────
@@ -511,6 +542,24 @@ function fitLogMeal(meal) {
     ts: Date.now()
   };
   fitSaveNutrition(nd);
+  awardFitTokens(5, 'logged meal');
+
+  // Check if daily calorie goal is met
+  const calGoal = parseInt(localStorage.getItem('fitCalGoal') || '2500');
+  const meals = ['breakfast', 'lunch', 'dinner'];
+  let totalCal = 0;
+  meals.forEach(m => { if (nd[today][m]) totalCal += (nd[today][m].cal || 0); });
+  if (totalCal >= calGoal && !localStorage.getItem('fitCalGoalBonusAwarded_' + today)) {
+    localStorage.setItem('fitCalGoalBonusAwarded_' + today, '1');
+    awardFitTokens(15, 'daily calorie goal hit');
+    const toast = document.createElement('div');
+    toast.className = 'fit-token-toast';
+    toast.textContent = 'Daily calorie goal hit! +15 💪';
+    toast.style.bottom = '80px';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  }
+
   fitRenderToday();
 }
 
@@ -670,8 +719,12 @@ function fitToggleVitamin(id, checked) {
   const today = fitGetToday();
   const vd = fitGetVitamins();
   if (!vd[today]) vd[today] = {};
-  if (checked) vd[today][id] = true;
-  else delete vd[today][id];
+  if (checked) {
+    vd[today][id] = true;
+    awardFitTokens(2, 'vitamin checked');
+  } else {
+    delete vd[today][id];
+  }
   fitSaveVitamins(vd);
 }
 
@@ -972,4 +1025,326 @@ function fitLogGoalHit(answer) {
   const today = fitGetToday();
   localStorage.setItem('fitGoalHit_' + today, answer);
   fitRenderBuilder();
+}
+
+// ── FEATURE 1: PERSONAL RECORDS (PR) TRACKER ──────────────────────────
+function fitGetPRs() {
+  try { return JSON.parse(localStorage.getItem('fitPRs') || '[]'); } catch { return []; }
+}
+
+function fitSavePR() {
+  const exInput = document.getElementById('fit-pr-exercise');
+  const valInput = document.getElementById('fit-pr-value');
+  const unitInput = document.getElementById('fit-pr-unit');
+  const dateInput = document.getElementById('fit-pr-date');
+  if (!exInput || !valInput) return;
+  const exercise = exInput.value.trim();
+  const value = parseFloat(valInput.value);
+  const unit = unitInput ? unitInput.value : 'lbs';
+  const date = dateInput && dateInput.value ? dateInput.value : fitGetToday();
+  if (!exercise || isNaN(value)) return;
+
+  const prs = fitGetPRs();
+  const existing = prs.find(p => p.exercise.toLowerCase() === exercise.toLowerCase());
+  const isNewPR = !existing || value > existing.value;
+
+  if (existing) {
+    if (value > existing.value) {
+      existing.value = value;
+      existing.unit = unit;
+      existing.date = date;
+    }
+  } else {
+    prs.push({ exercise, value, unit, date });
+  }
+  localStorage.setItem('fitPRs', JSON.stringify(prs));
+
+  if (isNewPR) {
+    awardFitTokens(30, 'new PR');
+    const toast = document.createElement('div');
+    toast.className = 'fit-token-toast';
+    toast.textContent = '🏆 NEW PR! +30 💪';
+    toast.style.bottom = '80px';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+  }
+
+  fitRenderPRs();
+}
+
+function fitRenderPRs() {
+  const el = document.getElementById('fit-prs-content');
+  if (!el) return;
+  const prs = fitGetPRs();
+  const today = fitGetToday();
+
+  const unitOptions = ['lbs', 'kg', 'reps', 'seconds', 'km'];
+
+  const prListHtml = prs.length === 0
+    ? `<div class="fit-pr-empty">No records yet. Add your first PR below!</div>`
+    : `<div class="fit-pr-list">
+        ${prs.map(pr => `
+          <div class="fit-pr-item">
+            <div class="fit-pr-exercise">${pr.exercise}</div>
+            <div class="fit-pr-val">${pr.value} ${pr.unit}</div>
+            <div class="fit-pr-date">${pr.date}</div>
+          </div>`).join('')}
+      </div>`;
+
+  el.innerHTML = `
+    <div class="fit-section-block">
+      <div class="fit-section-title">🏆 Personal Records</div>
+      ${prListHtml}
+      <div class="fit-pr-form">
+        <div class="fit-pr-form-title">Add Record</div>
+        <input class="fit-pr-input" id="fit-pr-exercise" type="text" placeholder="Exercise name (e.g. Bench Press)" />
+        <div class="fit-pr-form-row">
+          <input class="fit-pr-input fit-pr-val-input" id="fit-pr-value" type="number" placeholder="Value" min="0" step="0.5" />
+          <select class="fit-pr-unit-select" id="fit-pr-unit">
+            ${unitOptions.map(u => `<option value="${u}">${u}</option>`).join('')}
+          </select>
+        </div>
+        <input class="fit-pr-input" id="fit-pr-date" type="date" value="${today}" />
+        <button class="fit-pr-save-btn" onclick="fitSavePR()">Save PR</button>
+      </div>
+    </div>`;
+}
+
+// ── FEATURE 2: WORKOUT HISTORY CALENDAR (HEATMAP) ─────────────────────
+function fitRenderCalendar() {
+  const el = document.getElementById('fit-progress-content');
+  if (!el) return;
+
+  const d = fitGetData();
+  const today = new Date();
+  const totalDays = 84; // 12 weeks × 7 days
+
+  // Build array of 84 days (oldest first)
+  const days = [];
+  for (let i = totalDays - 1; i >= 0; i--) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() - i);
+    const key = dt.toISOString().split('T')[0];
+    const dayData = d[key];
+    let intensity = 0;
+    if (dayData && Object.keys(dayData).length > 0) {
+      // Try to get workout duration for intensity scaling
+      const builderKeys = Object.keys(dayData).filter(k => k.startsWith('__builder__'));
+      if (builderKeys.length > 0) {
+        intensity = Math.min(1, (dayData[builderKeys[0]].moves || 1) / 10);
+      } else {
+        intensity = 0.6;
+      }
+      intensity = Math.max(0.3, intensity);
+    }
+    days.push({ key, dt: new Date(dt), intensity });
+  }
+
+  // Month labels: track when month changes across the 12-week grid (7 cols)
+  const monthLabels = [];
+  let lastMonth = -1;
+  // We'll render col by col (weeks), each col = 7 days
+  // Build cols: 12 weeks, 7 rows each
+  const cols = [];
+  for (let w = 0; w < 12; w++) {
+    cols.push(days.slice(w * 7, w * 7 + 7));
+  }
+
+  // Collect month label positions (col index)
+  cols.forEach((col, colIdx) => {
+    const month = col[0].dt.getMonth();
+    if (month !== lastMonth) {
+      monthLabels.push({ colIdx, label: col[0].dt.toLocaleDateString('en-US', { month: 'short' }) });
+      lastMonth = month;
+    }
+  });
+
+  const monthLabelRow = `<div class="fit-heatmap-months">
+    ${cols.map((col, colIdx) => {
+      const lbl = monthLabels.find(m => m.colIdx === colIdx);
+      return `<div class="fit-heatmap-month-label">${lbl ? lbl.label : ''}</div>`;
+    }).join('')}
+  </div>`;
+
+  const gridCols = cols.map((col) => {
+    const cells = col.map(day => {
+      let color = 'rgba(255,255,255,0.08)';
+      if (day.intensity > 0) {
+        const alpha = 0.4 + day.intensity * 0.6;
+        color = `rgba(34,197,94,${alpha.toFixed(2)})`;
+      }
+      const isToday = day.key === today.toISOString().split('T')[0];
+      return `<div class="fit-heatmap-cell${isToday ? ' heatmap-today' : ''}" style="background:${color}" title="${day.key}"></div>`;
+    }).join('');
+    return `<div class="fit-heatmap-col">${cells}</div>`;
+  }).join('');
+
+  const heatmapHtml = `
+    <div class="fit-section-block" style="margin-top:16px">
+      <div class="fit-section-title">📅 Workout History (12 Weeks)</div>
+      <div class="fit-heatmap-wrap">
+        ${monthLabelRow}
+        <div class="fit-heatmap-grid">${gridCols}</div>
+        <div class="fit-heatmap-legend">
+          <span class="fit-heatmap-legend-label">Less</span>
+          <div class="fit-heatmap-cell" style="background:rgba(255,255,255,0.08)"></div>
+          <div class="fit-heatmap-cell" style="background:rgba(34,197,94,0.3)"></div>
+          <div class="fit-heatmap-cell" style="background:rgba(34,197,94,0.6)"></div>
+          <div class="fit-heatmap-cell" style="background:rgba(34,197,94,0.9)"></div>
+          <span class="fit-heatmap-legend-label">More</span>
+        </div>
+      </div>
+    </div>`;
+
+  el.insertAdjacentHTML('beforeend', heatmapHtml);
+}
+
+// ── FEATURE 3: BODY MEASUREMENTS LOG ──────────────────────────────────
+function fitGetMeasurements() {
+  try { return JSON.parse(localStorage.getItem('fitMeasurements') || '[]'); } catch { return []; }
+}
+
+function fitLogMeasurement() {
+  const weightEl = document.getElementById('fit-meas-weight');
+  const bfEl = document.getElementById('fit-meas-bf');
+  const waistEl = document.getElementById('fit-meas-waist');
+  const armsEl = document.getElementById('fit-meas-arms');
+  if (!weightEl) return;
+  const weight = parseFloat(weightEl.value);
+  if (isNaN(weight) || weight <= 0) return;
+  const entry = {
+    date: fitGetToday(),
+    weight,
+    bodyFat: bfEl && bfEl.value ? parseFloat(bfEl.value) : null,
+    waist: waistEl && waistEl.value ? parseFloat(waistEl.value) : null,
+    arms: armsEl && armsEl.value ? parseFloat(armsEl.value) : null
+  };
+  const measurements = fitGetMeasurements();
+  // Remove existing entry for today if present
+  const filtered = measurements.filter(m => m.date !== entry.date);
+  filtered.push(entry);
+  filtered.sort((a, b) => a.date.localeCompare(b.date));
+  localStorage.setItem('fitMeasurements', JSON.stringify(filtered));
+  fitRenderMeasurements();
+}
+
+function fitRenderMeasurements() {
+  const container = document.getElementById('fit-today-content');
+  if (!container) return;
+
+  // Remove existing measurements section if already rendered
+  const existingEl = document.getElementById('fit-measurements-section');
+  if (existingEl) existingEl.remove();
+
+  const measurements = fitGetMeasurements();
+  const last7 = measurements.slice(-7).reverse();
+
+  // Trend calculation
+  let trendHtml = '';
+  if (measurements.length >= 2) {
+    const latest = measurements[measurements.length - 1].weight;
+    // Find entry ~7 days ago
+    const today = fitGetToday();
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekAgoKey = weekAgo.toISOString().split('T')[0];
+    const oldEntry = measurements.slice().reverse().find(m => m.date <= weekAgoKey);
+    if (oldEntry) {
+      const diff = (latest - oldEntry.weight).toFixed(1);
+      const arrow = diff > 0 ? '↑' : '↓';
+      trendHtml = `<div class="fit-meas-trend">Weight: ${arrow} ${Math.abs(diff)} lbs from last week</div>`;
+    }
+  }
+
+  const tableHtml = last7.length === 0 ? '' : `
+    <table class="fit-meas-table">
+      <thead>
+        <tr>
+          <th>Date</th><th>Weight</th><th>Body Fat</th><th>Waist</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${last7.map(m => `
+          <tr>
+            <td>${m.date}</td>
+            <td>${m.weight} lbs</td>
+            <td>${m.bodyFat != null ? m.bodyFat + '%' : '—'}</td>
+            <td>${m.waist != null ? m.waist + '"' : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const sectionHtml = `
+    <div class="fit-section-block fit-collapse-block" id="fit-measurements-section">
+      <div class="fit-section-title fit-collapse-toggle" onclick="fitToggleCollapse('fit-meas-body')">
+        📏 Body Measurements <span class="fit-collapse-arrow" id="arrow-fit-meas-body">▾</span>
+      </div>
+      <div id="fit-meas-body">
+        <div class="fit-meas-form">
+          <div class="fit-meas-row">
+            <label class="fit-meas-label">Weight (lbs)</label>
+            <input class="fit-meas-input" id="fit-meas-weight" type="number" placeholder="e.g. 175" step="0.1" min="0" />
+          </div>
+          <div class="fit-meas-row">
+            <label class="fit-meas-label">Body Fat % (optional)</label>
+            <input class="fit-meas-input" id="fit-meas-bf" type="number" placeholder="e.g. 18.5" step="0.1" min="0" max="100" />
+          </div>
+          <div class="fit-meas-row">
+            <label class="fit-meas-label">Waist (inches)</label>
+            <input class="fit-meas-input" id="fit-meas-waist" type="number" placeholder="e.g. 32" step="0.5" min="0" />
+          </div>
+          <div class="fit-meas-row">
+            <label class="fit-meas-label">Arms (inches)</label>
+            <input class="fit-meas-input" id="fit-meas-arms" type="number" placeholder="e.g. 14" step="0.25" min="0" />
+          </div>
+          <button class="fit-meas-log-btn" onclick="fitLogMeasurement()">Log Today</button>
+        </div>
+        ${trendHtml}
+        ${tableHtml}
+      </div>
+    </div>`;
+
+  container.insertAdjacentHTML('beforeend', sectionHtml);
+}
+
+// ── FEATURE 4: CALORIE GOAL RING ──────────────────────────────────────
+// Replace plain calorie display in fitBuildNutritionSection with SVG ring.
+// The ring is rendered inline via fitBuildCalorieRing().
+function fitBuildCalorieRing(totalCal, goalCalories) {
+  const radius = 40;
+  const circumference = 2 * Math.PI * radius; // ~251.3
+  const pct = Math.min(1, totalCal / goalCalories);
+  const offset = circumference * (1 - pct);
+
+  let strokeColor = '#22c55e';
+  if (pct >= 1) strokeColor = '#ef4444';
+  else if (pct >= 0.5) strokeColor = '#eab308';
+
+  return `
+    <div class="fit-ring-wrap">
+      <svg class="fit-ring" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="${radius}" fill="none"
+          stroke="rgba(255,255,255,0.1)" stroke-width="8" />
+        <circle cx="50" cy="50" r="${radius}" fill="none"
+          stroke="${strokeColor}" stroke-width="8"
+          stroke-dasharray="${circumference.toFixed(2)}"
+          stroke-dashoffset="${offset.toFixed(2)}"
+          stroke-linecap="round"
+          transform="rotate(-90 50 50)" />
+        <text x="50" y="46" text-anchor="middle" class="fit-ring-cal-text" fill="white" font-size="13" font-weight="bold">${totalCal}</text>
+        <text x="50" y="60" text-anchor="middle" fill="rgba(255,255,255,0.6)" font-size="8">kcal</text>
+      </svg>
+      <div class="fit-ring-goal-label">/ ${goalCalories} kcal goal</div>
+      <button class="fit-ring-goal-btn" onclick="fitSetCalorieGoal()">Set Goal</button>
+    </div>`;
+}
+
+function fitSetCalorieGoal() {
+  const cur = localStorage.getItem('goalCalories') || localStorage.getItem('fitCalGoal') || '2000';
+  const val = prompt('Daily calorie goal (kcal):', cur);
+  if (val && !isNaN(val) && parseInt(val) > 0) {
+    localStorage.setItem('goalCalories', parseInt(val));
+    localStorage.setItem('fitCalGoal', parseInt(val));
+    fitRenderToday();
+  }
 }
