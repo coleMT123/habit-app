@@ -278,8 +278,15 @@
         <div class="pull-refresh" id="pull-refresh-friends"><div class="pull-spinner"></div></div>
         <div class="page-inner friends-page">
           <div class="friends-title-row">
+            <button class="friends-menu-btn" onclick="toggleFriendsMenu(this)" title="Friends menu">
+              <span class="friends-menu-icon">☰</span>
+            </button>
             <h1>Friends</h1>
-            <button class="friends-manage-btn" onclick="openFriendsManager()" title="Add or remove friends">+</button>
+            <button class="friends-add-btn" onclick="openAddFriendPanel()" title="Add friend">+</button>
+          </div>
+          <div class="friends-dropdown-menu" id="friends-dropdown" style="display:none">
+            <button class="fdm-item" onclick="toggleFriendsDropdownPanel('manage-friends-panel');toggleFriendsMenu(document.querySelector('.friends-menu-btn'))">👥 Manage Friends</button>
+            <button class="fdm-item" onclick="toggleFriendsDropdownPanel('sharing-panel');toggleFriendsMenu(document.querySelector('.friends-menu-btn'))">🔒 Who Sees My Habits</button>
           </div>
           <div id="friends-content">
             <div class="friends-dot-loader"><div class="dot-circle"></div></div>

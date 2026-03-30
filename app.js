@@ -6,6 +6,78 @@ function updateTokenDisplay() {
   if (el) el.textContent = _tokens.toLocaleString();
 }
 
+// ── WORLD TOKEN BOX (drawer) ──────────────────────────────
+function _renderWorldTokenBox() {
+  const world = typeof _currentWorld !== 'undefined' ? _currentWorld : 'habit';
+
+  if (world === 'fitness') {
+    const fitBal = parseInt(localStorage.getItem('fitTokenBalance') || '0', 10);
+    return `<div class="world-token-box wtb-fitness">
+      <div class="world-token-icon">
+        <svg class="fit-token-svg" viewBox="0 0 48 48" width="46" height="46">
+          <defs>
+            <linearGradient id="fitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ff6b6b"/><stop offset="50%" stop-color="#ef4444"/><stop offset="100%" stop-color="#dc2626"/>
+            </linearGradient>
+            <linearGradient id="fitShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="rgba(255,200,180,0)"/><stop offset="50%" stop-color="rgba(255,200,180,0.35)"/><stop offset="100%" stop-color="rgba(255,200,180,0)"/>
+              <animateTransform attributeName="gradientTransform" type="translate" from="-1 0" to="2 0" dur="2.5s" repeatCount="indefinite"/>
+            </linearGradient>
+          </defs>
+          <polygon points="24,2 43,13 43,35 24,46 5,35 5,13" fill="url(#fitGrad)" stroke="#ff6b6b" stroke-width="1.2"/>
+          <polygon points="24,2 43,13 43,35 24,46 5,35 5,13" fill="url(#fitShimmer)"/>
+          <text x="24" y="29" text-anchor="middle" font-size="18" fill="rgba(255,255,255,0.9)">💪</text>
+        </svg>
+      </div>
+      <div class="world-token-info">
+        <div class="world-token-label">Fitness Tokens</div>
+        <div class="world-token-balance"><span id="token-bank-count">${fitBal.toLocaleString()}</span><span class="world-token-unit"> tokens</span></div>
+      </div>
+    </div>`;
+  }
+
+  if (world === 'scholar') {
+    const schBal = parseInt(localStorage.getItem('schTokenBalance') || '0', 10);
+    const schXP  = parseInt(localStorage.getItem('schXP') || '0', 10);
+    return `<div class="world-token-box wtb-scholar">
+      <div class="world-token-icon">
+        <svg class="sch-token-svg" viewBox="0 0 48 48" width="46" height="46">
+          <defs>
+            <radialGradient id="schGrad" cx="40%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#e9d5ff"/><stop offset="45%" stop-color="#a855f7"/><stop offset="100%" stop-color="#6b21a8"/>
+            </radialGradient>
+          </defs>
+          <circle cx="24" cy="24" r="22" fill="url(#schGrad)" stroke="#c084fc" stroke-width="1.2"/>
+          <text x="24" y="29" text-anchor="middle" font-size="20" fill="rgba(255,255,255,0.9)">📖</text>
+        </svg>
+      </div>
+      <div class="world-token-info">
+        <div class="world-token-label">Scholar Tokens · ${schXP.toLocaleString()} XP</div>
+        <div class="world-token-balance"><span id="token-bank-count">${schBal.toLocaleString()}</span><span class="world-token-unit"> tokens</span></div>
+      </div>
+    </div>`;
+  }
+
+  // Default: habit world — gold hex
+  return `<div class="world-token-box wtb-habit">
+    <div class="world-token-icon">
+      <svg viewBox="0 0 48 48" width="46" height="46">
+        <defs>
+          <radialGradient id="habGrad" cx="38%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#fef9c3"/><stop offset="45%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#78350f"/>
+          </radialGradient>
+        </defs>
+        <polygon points="24,2 43,13 43,35 24,46 5,35 5,13" fill="url(#habGrad)" stroke="#fde68a" stroke-width="1.5"/>
+        <text x="24" y="29" text-anchor="middle" font-size="18" fill="rgba(255,255,255,0.9)">🔥</text>
+      </svg>
+    </div>
+    <div class="world-token-info">
+      <div class="world-token-label">Habit Tokens</div>
+      <div class="world-token-balance"><span id="token-bank-count">${_tokens.toLocaleString()}</span><span class="world-token-unit"> tokens</span></div>
+    </div>
+  </div>`;
+}
+
 function awardTokens(count, sourceEl) {
   if (!sourceEl) return;
   const rect = sourceEl.getBoundingClientRect();
@@ -278,8 +350,7 @@ function initFirebase() {
         _hideLoadingScreen();
         _hideAuthGate();
         loadFromCloud();
-        // Show session start banner after data loads
-        setTimeout(_showSessionStartBanner, 1800);
+        // session start banner disabled
         const pendingUid = localStorage.getItem('pendingFriendAdd');
         if (pendingUid && pendingUid !== user.uid) {
           localStorage.removeItem('pendingFriendAdd');
@@ -1138,6 +1209,143 @@ function toggleHabitEditMode() {
   render();
 }
 
+function openHabitEditPopup(habitId) {
+  document.getElementById('hep-overlay')?.remove();
+  const habits = getHabits();
+  const h = habits.find(x => x.id === habitId);
+  if (!h) return;
+  const CATS = HABIT_CATEGORY_LIST ? HABIT_CATEGORY_LIST() : ['Daily','Morning','Evening'];
+  const othHabits = habits.filter(oh => oh.id !== habitId);
+  window._hepEdits = window._hepEdits || {};
+  window._hepEdits[habitId] = { difficulty: h.difficulty||'medium', category: h.category||'Daily', stackAfter: h.stackAfter||'', emoji: h.emoji };
+
+  const overlay = document.createElement('div');
+  overlay.id = 'hep-overlay';
+  overlay.className = 'hep-overlay';
+  overlay.innerHTML = `
+    <div class="hep-modal">
+      <div class="hep-header">
+        <button class="hep-close-btn" onclick="document.getElementById('hep-overlay')?.remove()">✕</button>
+        <span class="hep-title" id="hep-preview-${habitId}">${h.emoji} ${h.name}</span>
+        <button class="hep-save-btn" onclick="saveHabitEditPopup('${habitId}')">Save ✓</button>
+      </div>
+      <div class="hep-tabs">
+        <button class="hep-tab hep-tab-active" onclick="hepTab(this,'hep-info-${habitId}')">Info</button>
+        <button class="hep-tab" onclick="hepTab(this,'hep-diff-${habitId}')">Level</button>
+        <button class="hep-tab" onclick="hepTab(this,'hep-cat-${habitId}')">Category</button>
+        <button class="hep-tab" onclick="hepTab(this,'hep-stack-${habitId}')">Stack</button>
+      </div>
+      <div class="hep-panels">
+        <div class="hep-panel" id="hep-info-${habitId}">
+          <div class="hep-row">
+            <label class="hep-lbl">Emoji</label>
+            <button class="hep-emoji-show" id="hep-emj-${habitId}" onclick="openHabitEmojiPopup('${habitId}')">${h.emoji}</button>
+          </div>
+          <div class="hep-row">
+            <label class="hep-lbl">Name</label>
+            <input class="hep-name-inp" id="hep-nm-${habitId}" type="text" value="${h.name.replace(/"/g,'&quot;')}" maxlength="40" oninput="document.getElementById('hep-preview-${habitId}').textContent=document.getElementById('hep-emj-${habitId}').textContent+' '+this.value"/>
+          </div>
+          <div class="hep-row">
+            <label class="hep-lbl">Time</label>
+            <input class="hep-mins-inp" id="hep-min-${habitId}" type="number" value="${h.mins||''}" min="1" max="999" placeholder="— mins"/>
+          </div>
+        </div>
+        <div class="hep-panel hep-hidden" id="hep-diff-${habitId}">
+          <div class="hep-diff-grid">
+            <button class="hep-diff-btn${(h.difficulty||'medium')==='easy'?' hep-diff-on':''}" onclick="hepDiff('${habitId}','easy',this)">🟢<br><b>Easy</b><br><small>×1 token</small></button>
+            <button class="hep-diff-btn${(h.difficulty||'medium')==='medium'?' hep-diff-on':''}" onclick="hepDiff('${habitId}','medium',this)">🟡<br><b>Medium</b><br><small>×2 tokens</small></button>
+            <button class="hep-diff-btn${(h.difficulty||'medium')==='hard'?' hep-diff-on':''}" onclick="hepDiff('${habitId}','hard',this)">🔴<br><b>Hard</b><br><small>×3 tokens</small></button>
+          </div>
+          <button class="hep-challenge-link" onclick="startChallenge('${habitId}');document.getElementById('hep-overlay')?.remove()">🎯 Start 30-Day Challenge</button>
+        </div>
+        <div class="hep-panel hep-hidden" id="hep-cat-${habitId}">
+          <div class="hep-cat-grid" id="hep-catg-${habitId}">
+            ${CATS.map(c=>`<button class="hep-cat-btn${(h.category||'Daily')===c?' hep-cat-on':''}" onclick="hepCat('${habitId}','${c}',this)">${c}</button>`).join('')}
+            <button class="hep-cat-btn hep-cat-new" onclick="hepNewCat('${habitId}')">+ New…</button>
+          </div>
+        </div>
+        <div class="hep-panel hep-hidden" id="hep-stack-${habitId}">
+          <p class="hep-stack-hint">Run right after another habit</p>
+          <div class="hep-stack-list">
+            <button class="hep-stack-item${!h.stackAfter?' hep-stack-on':''}" onclick="hepStack('${habitId}','',this)">None</button>
+            ${othHabits.map(oh=>`<button class="hep-stack-item${h.stackAfter===oh.id?' hep-stack-on':''}" onclick="hepStack('${habitId}','${oh.id}',this)">${oh.emoji} ${oh.name}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <button class="hep-delete-btn" onclick="if(confirm('Delete this habit?')){removeHabit('${habitId}');document.getElementById('hep-overlay')?.remove();}">🗑 Delete Habit</button>
+    </div>`;
+  overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+function hepTab(btn, panelId) {
+  btn.closest('.hep-modal').querySelectorAll('.hep-tab').forEach(t=>t.classList.remove('hep-tab-active'));
+  btn.closest('.hep-modal').querySelectorAll('.hep-panel').forEach(p=>p.classList.add('hep-hidden'));
+  btn.classList.add('hep-tab-active');
+  document.getElementById(panelId)?.classList.remove('hep-hidden');
+}
+function hepDiff(id,val,btn){
+  window._hepEdits=window._hepEdits||{};window._hepEdits[id]=window._hepEdits[id]||{};window._hepEdits[id].difficulty=val;
+  btn.closest('.hep-diff-grid').querySelectorAll('.hep-diff-btn').forEach(b=>b.classList.remove('hep-diff-on'));
+  btn.classList.add('hep-diff-on');
+}
+function hepCat(id,val,btn){
+  window._hepEdits=window._hepEdits||{};window._hepEdits[id]=window._hepEdits[id]||{};window._hepEdits[id].category=val;
+  btn.closest('.hep-cat-grid').querySelectorAll('.hep-cat-btn').forEach(b=>b.classList.remove('hep-cat-on'));
+  btn.classList.add('hep-cat-on');
+}
+function hepStack(id,val,btn){
+  window._hepEdits=window._hepEdits||{};window._hepEdits[id]=window._hepEdits[id]||{};window._hepEdits[id].stackAfter=val;
+  btn.closest('.hep-stack-list').querySelectorAll('.hep-stack-item').forEach(b=>b.classList.remove('hep-stack-on'));
+  btn.classList.add('hep-stack-on');
+}
+function hepNewCat(id){
+  const n=prompt('New category:');if(!n||!n.trim())return;
+  if(typeof addCustomCategory==='function')addCustomCategory(n.trim());
+  hepCat(id,n.trim(),null);
+}
+function saveHabitEditPopup(habitId){
+  const edits=window._hepEdits?.[habitId]||{};
+  const nm=document.getElementById('hep-nm-'+habitId)?.value.trim();
+  const mn=parseInt(document.getElementById('hep-min-'+habitId)?.value)||0;
+  const em=document.getElementById('hep-emj-'+habitId)?.textContent;
+  const habits=getHabits().map(h=>{
+    if(h.id!==habitId)return h;
+    return{...h,...(nm?{name:nm}:{}),...(em?{emoji:em}:{}),mins:mn||undefined,
+      difficulty:edits.difficulty||h.difficulty,category:edits.category||h.category,
+      stackAfter:edits.stackAfter!==undefined?edits.stackAfter:h.stackAfter};
+  });
+  saveHabitsConfig(habits);buildHabitCards();
+  document.getElementById('hep-overlay')?.remove();
+}
+function openHabitEmojiPopup(habitId){
+  document.getElementById('hep-emj-overlay')?.remove();
+  const overlay=document.createElement('div');
+  overlay.id='hep-emj-overlay';overlay.className='hep-overlay';
+  overlay.innerHTML=`<div class="hep-modal hep-emj-modal">
+    <div class="hep-header">
+      <button class="hep-close-btn" onclick="document.getElementById('hep-emj-overlay')?.remove()">✕</button>
+      <span class="hep-title">Choose Emoji</span>
+      <span></span>
+    </div>
+    <div class="hep-emj-native-wrap">
+      <span class="hep-emj-native-lbl">Switch to emoji keyboard 👇</span>
+      <input type="text" class="hep-emj-native-inp" placeholder="😀 tap here..." autocomplete="off" autocorrect="off" spellcheck="false"
+        oninput="(function(v){const m=v.match(/\\p{Emoji_Presentation}|\\p{Extended_Pictographic}/gu);if(m&&m[0]){window._hepEdits=window._hepEdits||{};window._hepEdits['${habitId}']=window._hepEdits['${habitId}']||{};window._hepEdits['${habitId}'].emoji=m[0];const b=document.getElementById('hep-emj-${habitId}');if(b)b.textContent=m[0];const p=document.getElementById('hep-preview-${habitId}');if(p)p.textContent=m[0]+' '+(document.getElementById('hep-nm-${habitId}')?.value||'');document.getElementById('hep-emj-overlay')?.remove();}this.value=''})(this.value)"/>
+    </div>
+    <input type="text" class="hep-emj-search" placeholder="Search emoji..." oninput="hepEmojiFilter(this.value,'${habitId}')" autocomplete="off"/>
+    <div class="hep-emj-grid" id="hep-emj-grid-${habitId}"></div>
+  </div>`;
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+  setTimeout(()=>hepEmojiFilter('',habitId),50);
+}
+function hepEmojiFilter(q,id){
+  const grid=document.getElementById('hep-emj-grid-'+id);if(!grid)return;
+  const results=q?(EMOJI_SEARCH_DATA||[]).filter(d=>d.k.includes(q.toLowerCase())||d.e===q):EMOJI_SEARCH_DATA||[];
+  grid.innerHTML=results.map(d=>`<button class="hep-emj-item" onclick="(function(){window._hepEdits=window._hepEdits||{};window._hepEdits['${id}']=window._hepEdits['${id}']||{};window._hepEdits['${id}'].emoji='${d.e}';const b=document.getElementById('hep-emj-${id}');if(b)b.textContent='${d.e}';const p=document.getElementById('hep-preview-${id}');if(p)p.textContent='${d.e} '+(document.getElementById('hep-nm-${id}')?.value||'');document.getElementById('hep-emj-overlay')?.remove();})()">${d.e}</button>`).join('');
+}
+
 // ── CONFIRM MODAL ─────────────────────────────────────────
 let _confirmCallback = null;
 
@@ -1607,6 +1815,67 @@ function saveHabitOrder() {
   queueSync();
 }
 
+function initSmoothDrag(list) {
+  let dragEl=null,startY=0,cardH=0,originIdx=-1,curIdx=-1;
+  function cards(){return[...list.querySelectorAll('.habit-card')];}
+  function shiftCards(){
+    cards().forEach((c,i)=>{
+      if(c===dragEl)return;
+      c.style.transition='transform 0.2s cubic-bezier(0.34,1.56,0.64,1)';
+      let s=0;
+      if(originIdx<curIdx&&i>originIdx&&i<=curIdx)s=-(cardH+8);
+      else if(originIdx>curIdx&&i>=curIdx&&i<originIdx)s=(cardH+8);
+      c.style.transform=`translateY(${s}px)`;
+    });
+  }
+  function reset(){cards().forEach(c=>{c.style.transition='transform 0.2s ease';c.style.transform='';});}
+  function onDown(e){
+    const h=e.target.closest('.drag-handle');if(!h)return;
+    const card=h.closest('.habit-card');if(!card)return;
+    e.preventDefault();
+    dragEl=card;const cs=cards();originIdx=cs.indexOf(dragEl);curIdx=originIdx;
+    cardH=dragEl.getBoundingClientRect().height;
+    const touch=e.touches?e.touches[0]:e;startY=touch.clientY;
+    dragEl.style.transition='none';dragEl.style.transform='scale(1.02)';
+    dragEl.style.boxShadow='0 8px 32px rgba(0,0,0,0.5)';dragEl.style.zIndex='500';dragEl.style.position='relative';
+    document.addEventListener('touchmove',onMove,{passive:false});
+    document.addEventListener('touchend',onUp);
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  }
+  function onMove(e){
+    if(!dragEl)return;e.preventDefault();
+    const touch=e.touches?e.touches[0]:e;
+    const dy=touch.clientY-startY;
+    dragEl.style.transform=`translateY(${dy}px) scale(1.02)`;
+    const mid=dragEl.getBoundingClientRect().top+cardH/2;
+    let ni=originIdx;
+    cards().forEach((c,i)=>{
+      if(c===dragEl)return;
+      const r=c.getBoundingClientRect();
+      if(originIdx<i&&mid>r.top+r.height/2)ni=i;
+      if(originIdx>i&&mid<r.top+r.height/2)ni=i;
+    });
+    if(ni!==curIdx){curIdx=ni;shiftCards();}
+  }
+  function onUp(){
+    if(!dragEl)return;
+    document.removeEventListener('touchmove',onMove);document.removeEventListener('touchend',onUp);
+    document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);
+    if(originIdx!==curIdx){
+      dragEl.parentNode.removeChild(dragEl);
+      const bubble=list.querySelector('.habit-category-bubble');
+      if(bubble){const tgts=[...bubble.querySelectorAll('.habit-card')];
+        if(curIdx<tgts.length)bubble.insertBefore(dragEl,tgts[curIdx]);else bubble.appendChild(dragEl);}
+    }
+    dragEl.style.cssText='';reset();
+    setTimeout(()=>saveHabitOrder(),80);
+    dragEl=null;originIdx=-1;curIdx=-1;
+  }
+  list.addEventListener('touchstart',onDown,{passive:false});
+  list.addEventListener('mousedown',onDown);
+}
+
 function buildHabitCards() {
   const list = document.getElementById('habit-list');
   if (!list) return;
@@ -1614,86 +1883,30 @@ function buildHabitCards() {
 
   function _buildCard(h) {
     const hasMins = h.mins !== undefined && h.mins > 0;
-    const minsLabel = !habitEditMode
-      ? (hasMins ? `<span class="habit-mins-badge">${h.mins}<span class="habit-mins-unit">min</span></span>` : '')
-      : '';
-    const minsEditControl = habitEditMode
-      ? (hasMins
-          ? `<div class="habit-mins-edit has-mins">
-               <input class="habit-mins-edit-input" type="number" value="${h.mins}" min="1" max="999"
-                 onchange="updateHabitMins('${h.id}', this.value)"
-                 onblur="updateHabitMins('${h.id}', this.value)"
-                 onclick="this.select()" />
-               <span class="habit-mins-edit-unit">min</span>
-               <button class="habit-mins-remove-btn" onclick="removeHabitMins('${h.id}')" title="Remove time">×</button>
-             </div>`
-          : `<button class="habit-mins-add-btn" onclick="addHabitMins('${h.id}')" title="Add time estimate">
-               <span>⏱</span><span class="habit-mins-add-label">+min</span>
-             </button>`)
-      : '';
-    const categoryEditControl = habitEditMode
-      ? `<select class="habit-category-select" onchange="
-          if(this.value==='__new__'){
-            const n=prompt('New category name:');
-            if(n&&n.trim()){addCustomCategory(n.trim());updateHabitCategory('${h.id}',n.trim());buildHabitCards();}
-            else{this.value='${h.category||'Daily'}';}
-          } else { updateHabitCategory('${h.id}', this.value); }">
-           ${HABIT_CATEGORY_LIST().map(c => `<option value="${c}"${(h.category||'Daily')===c?' selected':''}>${c}</option>`).join('')}
-           <option value="__new__">+ New category…</option>
-         </select>`
-      : '';
-
-    const DIFFICULTY_COLORS_MAP = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#a855f7','#ec4899','#ffffff'];
-    const difficultyEditControl = habitEditMode
-      ? `<div class="habit-difficulty-edit">
-           <span class="habit-edit-label">Difficulty:</span>
-           <button class="habit-diff-btn${(h.difficulty||'medium')==='easy'?' active':''}" onclick="updateHabitDifficulty('${h.id}','easy')">🟢 Easy</button>
-           <button class="habit-diff-btn${(h.difficulty||'medium')==='medium'?' active':''}" onclick="updateHabitDifficulty('${h.id}','medium')">🟡 Medium</button>
-           <button class="habit-diff-btn${(h.difficulty||'medium')==='hard'?' active':''}" onclick="updateHabitDifficulty('${h.id}','hard')">🔴 Hard</button>
-         </div>`
-      : '';
-
-    const colorEditControl = habitEditMode
-      ? `<div class="habit-color-edit">
-           <span class="habit-edit-label">Color:</span>
-           ${DIFFICULTY_COLORS_MAP.map(c => `<button class="habit-color-circle${(h.color||'#ffffff')=== c?' selected':''}" style="background:${c}" onclick="updateHabitColor('${h.id}','${c}')" title="${c}">${(h.color||'#ffffff')===c?'✓':''}</button>`).join('')}
-         </div>`
-      : '';
-
-    const otherHabits = getHabits().filter(oh => oh.id !== h.id);
-    const stackEditControl = habitEditMode
-      ? `<div class="habit-stack-edit">
-           <span class="habit-edit-label">Stack after:</span>
-           <select class="habit-stack-select" onchange="updateHabitStack('${h.id}',this.value)">
-             <option value=""${!h.stackAfter?' selected':''}>None</option>
-             ${otherHabits.map(oh => `<option value="${oh.id}"${h.stackAfter===oh.id?' selected':''}>${oh.emoji} ${oh.name}</option>`).join('')}
-           </select>
-         </div>`
-      : '';
-
-    const challengeEditControl = habitEditMode
-      ? `<button class="habit-challenge-btn" onclick="startChallenge('${h.id}')">🎯 Start 30-Day Challenge</button>`
+    const minsLabel = '';
+    const minsEditControl = '';
+    const categoryEditControl = '';
+    const difficultyEditControl = '';
+    const colorEditControl = '';
+    const stackEditControl = '';
+    const challengeEditControl = '';
+    const editBtn = habitEditMode
+      ? `<button class="habit-edit-popup-btn" onclick="openHabitEditPopup('${h.id}')" title="Edit">✏️</button>`
       : '';
     return `
-    <div class="habit-card" data-habit="${h.id}" ${habitEditMode ? 'draggable="true"' : ''} style="${h.color ? `border-left:4px solid ${h.color}` : 'border-left:4px solid #ffffff22'}">
+    <div class="habit-card" data-habit="${h.id}" ${habitEditMode ? 'draggable="true"' : ''}>
       <button class="remove-habit-btn" onclick="removeHabit('${h.id}')" title="Remove habit">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
         </svg>
       </button>
       <div class="drag-handle">⠿</div>
-      ${minsEditControl}
-      ${minsLabel}
       <div class="habit-info">
         <span class="emoji">${h.emoji}</span>
         <span class="habit-name">${h.name}</span>
         <span class="habit-difficulty-badge ${h.difficulty || 'medium'}">${(h.difficulty || 'medium') === 'easy' ? '🟢' : (h.difficulty || 'medium') === 'hard' ? '🔴' : '🟡'}</span>
       </div>
-      ${categoryEditControl}
-      ${difficultyEditControl}
-      ${colorEditControl}
-      ${stackEditControl}
-      ${challengeEditControl}
+      ${editBtn}
       <div class="habit-right">
         <span class="streak" id="streak-${h.id}">0 days</span>
         ${habitEditMode ? '' : `<button class="check-btn" id="btn-${h.id}" onclick="toggleHabit('${h.id}')">✓</button>`}
@@ -1740,7 +1953,7 @@ function buildHabitCards() {
     list.insertAdjacentElement('beforebegin', addBtn);
   }
 
-  initDragAndDrop();
+  if (habitEditMode) initSmoothDrag(list);
 }
 
 function _getDifficultyMultiplier(habit) {
@@ -2879,32 +3092,99 @@ function setHabitSharingMode(mode) {
 }
 
 async function addFriendByUsername() {
-  const input = document.getElementById('mf-username-input');
-  const status = document.getElementById('mf-add-status');
+  const input = document.getElementById('mf-username-input') || document.getElementById('add-friend-input');
+  const status = document.getElementById('mf-add-status') || document.getElementById('add-friend-status');
   if (!input || !_fbDb || !_currentUser) return;
-  const username = input.value.trim().toLowerCase();
-  if (!username) return;
-  if (status) { status.textContent = 'Searching…'; status.style.color = '#888'; }
+  const query = input.value.trim();
+  if (!query) return;
+  if (status) { status.className = 'mf-add-status'; status.textContent = 'Searching…'; }
+
   try {
-    const snap = await _fbDb.collection('users').where('username', '==', username).limit(1).get();
-    if (snap.empty) {
-      if (status) { status.textContent = 'No user found with that username.'; status.style.color = '#f87171'; }
-      return;
-    }
-    const friendUid = snap.docs[0].id;
-    if (friendUid === _currentUser.uid) {
-      if (status) { status.textContent = "That's you!"; status.style.color = '#f87171'; }
-      return;
-    }
-    await _fbDb.collection('users').doc(_currentUser.uid).update({
-      friends: firebase.firestore.FieldValue.arrayUnion(friendUid)
+    // Search by username exact match first, then displayName prefix
+    const [byUsername, byDisplayName] = await Promise.all([
+      _fbDb.collection('users').where('username', '==', query.toLowerCase()).limit(5).get(),
+      _fbDb.collection('users').where('displayName', '>=', query).where('displayName', '<=', query + '\uf8ff').limit(5).get()
+    ]);
+
+    const seen = new Set();
+    const results = [];
+    [...byUsername.docs, ...byDisplayName.docs].forEach(doc => {
+      if (!seen.has(doc.id) && doc.id !== _currentUser.uid) {
+        seen.add(doc.id);
+        results.push({ uid: doc.id, data: doc.data() });
+      }
     });
-    input.value = '';
-    if (status) { status.textContent = '✅ Friend added!'; status.style.color = '#4ade80'; }
-    setTimeout(() => renderFriends(), 800);
+
+    if (results.length === 0) {
+      if (status) { status.className = 'mf-add-status err'; status.textContent = 'No users found'; }
+      return;
+    }
+
+    if (results.length === 1) {
+      // Auto-add single result
+      const { uid, data } = results[0];
+      const myData = await _fbDb.collection('users').doc(_currentUser.uid).get();
+      const myFriends = myData.data()?.friends || [];
+      if (myFriends.includes(uid)) {
+        if (status) { status.className = 'mf-add-status err'; status.textContent = 'Already friends!'; }
+        return;
+      }
+      await _fbDb.collection('users').doc(_currentUser.uid).update({
+        friends: firebase.firestore.FieldValue.arrayUnion(uid)
+      });
+      if (status) { status.className = 'mf-add-status ok'; status.textContent = `✓ Added ${data.displayName || uid}`; }
+      input.value = '';
+      setTimeout(() => renderFriends(), 800);
+    } else {
+      // Show picker for multiple results
+      if (status) { status.className = 'mf-add-status'; status.textContent = ''; }
+      const picker = document.createElement('div');
+      picker.className = 'friend-search-results';
+      picker.innerHTML = results.map(r => `
+        <button class="fsr-item" onclick="(async function(){
+          await _fbDb.collection('users').doc('${_currentUser.uid}').update({friends:firebase.firestore.FieldValue.arrayUnion('${r.uid}')});
+          document.querySelector('.friend-search-results')?.remove();
+          if(document.getElementById('add-friend-status'))document.getElementById('add-friend-status').textContent='✓ Added!';
+          setTimeout(()=>renderFriends(),600);
+        })()">
+          <span class="fsr-avatar">${(r.data.displayName||'?').charAt(0).toUpperCase()}</span>
+          <span class="fsr-name">${r.data.displayName || r.uid}</span>
+          ${r.data.username ? `<span class="fsr-handle">@${r.data.username}</span>` : ''}
+        </button>`).join('');
+      const inputParent = input.parentNode;
+      document.querySelector('.friend-search-results')?.remove();
+      inputParent.after(picker);
+    }
   } catch(e) {
-    if (status) { status.textContent = 'Error: ' + (e.message || e.code); status.style.color = '#f87171'; }
+    if (status) { status.className = 'mf-add-status err'; status.textContent = 'Search failed'; }
+    console.warn('Friend search error:', e);
   }
+}
+
+function toggleFriendsMenu(btn) {
+  const menu = document.getElementById('friends-dropdown');
+  if (!menu) return;
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (btn) btn.classList.toggle('fdm-open', !isOpen);
+}
+
+function openAddFriendPanel() {
+  // Open the manage friends section if it exists, or scroll to it
+  const mfCard = document.querySelector('.manage-friends-card');
+  if (mfCard) {
+    mfCard.scrollIntoView({ behavior: 'smooth' });
+    const input = mfCard.querySelector('.mf-username-input');
+    if (input) setTimeout(() => input.focus(), 400);
+  } else {
+    renderFriends();
+  }
+}
+
+function toggleFriendsDropdownPanel(panelClass) {
+  // Scroll to manage friends or sharing section
+  const el = document.querySelector('.' + panelClass) || document.querySelector('.manage-friends-card');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function removeFriend(uid) {
@@ -4323,38 +4603,7 @@ function renderDrawerMenu() {
       </div>
     </div>
 
-    <div class="token-bank-box">
-      <div class="token-bank-coin"><svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" width="48" height="48">
-        <defs>
-          <radialGradient id="tbg" cx="38%" cy="30%" r="65%">
-            <stop offset="0%" stop-color="#fef9c3"/>
-            <stop offset="45%" stop-color="#f59e0b"/>
-            <stop offset="100%" stop-color="#78350f"/>
-          </radialGradient>
-          <filter id="tbglow">
-            <feGaussianBlur stdDeviation="2" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-        <polygon points="24,2 43,13 43,35 24,46 5,35 5,13" fill="url(#tbg)" stroke="#fde68a" stroke-width="1.5" filter="url(#tbglow)"/>
-        <line x1="24" y1="24" x2="15" y2="17" stroke="rgba(180,40,40,0.85)" stroke-width="1.3"/>
-        <line x1="24" y1="24" x2="33" y2="17" stroke="rgba(180,40,40,0.85)" stroke-width="1.3"/>
-        <line x1="24" y1="24" x2="15" y2="31" stroke="rgba(180,40,40,0.85)" stroke-width="1.3"/>
-        <line x1="24" y1="24" x2="33" y2="31" stroke="rgba(180,40,40,0.85)" stroke-width="1.3"/>
-        <line x1="15" y1="17" x2="33" y2="17" stroke="rgba(10,10,10,0.8)" stroke-width="1"/>
-        <line x1="15" y1="31" x2="33" y2="31" stroke="rgba(10,10,10,0.8)" stroke-width="1"/>
-        <circle cx="24" cy="24" r="4" fill="#c0392b"/>
-        <circle cx="15" cy="17" r="2.4" fill="#1a1a1a"/>
-        <circle cx="33" cy="17" r="2.4" fill="#1a1a1a"/>
-        <circle cx="15" cy="31" r="2.4" fill="#1a1a1a"/>
-        <circle cx="33" cy="31" r="2.4" fill="#1a1a1a"/>
-        <polygon points="24,2 43,13 43,35 24,46 5,35 5,13" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      </svg></div>
-      <div class="token-bank-info">
-        <div class="token-bank-label">Token Bank</div>
-        <div class="token-bank-balance"><span id="token-bank-count">${_tokens.toLocaleString()}</span> <span class="token-bank-unit">tokens</span></div>
-      </div>
-    </div>
+    ${_renderWorldTokenBox()}
 
     <div class="drawer-divider"></div>
 
@@ -4371,31 +4620,29 @@ function renderDrawerMenu() {
       <span class="drawer-item-arrow">›</span>
     </button>
 
-    <button class="drawer-item" onclick="showDateCalendar()">
-      <span class="drawer-item-text">Edit a Day</span>
-      <span class="drawer-item-arrow">›</span>
-    </button>
 
     <div class="drawer-divider"></div>
-    <div class="drawer-section-label" style="padding:8px 20px 4px;font-size:0.68rem;color:#444;text-transform:uppercase;letter-spacing:0.08em">Wellness Surveys</div>
-
-    <button class="drawer-item survey-menu-btn" onclick="showFitnessSurvey()">
-      <span class="survey-menu-icon">💪</span>
-      <span class="drawer-item-text">Fitness Goals Plan</span>
-      <span class="survey-menu-badge${localStorage.getItem('fitnessAnswers') ? ' done' : ''}">${localStorage.getItem('fitnessAnswers') ? 'Plan saved' : 'New'}</span>
+    <button class="drawer-item" onclick="toggleWellnessSurveys()" id="wellness-surveys-toggle">
+      <span class="drawer-item-text">🌿 Wellness Surveys</span>
+      <span class="drawer-item-arrow" id="wellness-surveys-arrow">›</span>
     </button>
-
-    <button class="drawer-item survey-menu-btn" onclick="showExerciseSurvey()">
-      <span class="survey-menu-icon">🏃</span>
-      <span class="drawer-item-text">Exercise Survey</span>
-      <span class="survey-menu-badge${localStorage.getItem('exerciseOptimalMins') ? ' done' : ''}">${localStorage.getItem('exerciseOptimalMins') ? fmtExerciseMins(parseFloat(localStorage.getItem('exerciseOptimalMins'))) + ' target' : 'Not set'}</span>
-    </button>
-
-    <button class="drawer-item survey-menu-btn" onclick="showSleepSurvey()">
-      <span class="survey-menu-icon">😴</span>
-      <span class="drawer-item-text">Sleep Survey</span>
-      <span class="survey-menu-badge${localStorage.getItem('sleepOptimalHours') ? ' done' : ''}">${localStorage.getItem('sleepOptimalHours') ? parseFloat(localStorage.getItem('sleepOptimalHours')) + 'h target' : 'Not set'}</span>
-    </button>
+    <div id="wellness-surveys-content" style="display:none;">
+      <button class="drawer-item survey-menu-btn" style="padding-left:24px" onclick="showFitnessSurvey()">
+        <span class="survey-menu-icon">💪</span>
+        <span class="drawer-item-text">Fitness Goals Plan</span>
+        <span class="survey-menu-badge${localStorage.getItem('fitnessAnswers') ? ' done' : ''}">${localStorage.getItem('fitnessAnswers') ? '✓' : 'New'}</span>
+      </button>
+      <button class="drawer-item survey-menu-btn" style="padding-left:24px" onclick="showExerciseSurvey()">
+        <span class="survey-menu-icon">🏃</span>
+        <span class="drawer-item-text">Exercise Survey</span>
+        <span class="survey-menu-badge${localStorage.getItem('exerciseOptimalMins') ? ' done' : ''}">${localStorage.getItem('exerciseOptimalMins') ? '✓' : 'New'}</span>
+      </button>
+      <button class="drawer-item survey-menu-btn" style="padding-left:24px" onclick="showSleepSurvey()">
+        <span class="survey-menu-icon">😴</span>
+        <span class="drawer-item-text">Sleep Survey</span>
+        <span class="survey-menu-badge${localStorage.getItem('sleepOptimalHours') ? ' done' : ''}">${localStorage.getItem('sleepOptimalHours') ? '✓' : 'New'}</span>
+      </button>
+    </div>
 
     <div class="drawer-divider"></div>
     <button class="drawer-item" onclick="showGoals()">
@@ -4539,7 +4786,6 @@ function toggleWoodTheme() {
 }
 
 function showSettings() {
-  const isWood = (localStorage.getItem('colorTheme') || 'default') === 'wood';
   const isLight = localStorage.getItem('lightMode') === 'true';
   document.getElementById('drawer-title').textContent = 'Settings';
   document.getElementById('drawer-body').innerHTML = `
@@ -4550,38 +4796,58 @@ function showSettings() {
       <span class="drawer-item-arrow">›</span>
     </button>
 
-    <div class="drawer-divider"></div>
-
-    <button class="drawer-item" onclick="toggleColorThemes()" id="color-themes-toggle">
-      <span class="drawer-item-text">Color Themes</span>
-      <span class="drawer-item-arrow" id="color-themes-arrow">›</span>
+    <button class="drawer-toggle-row" onclick="toggleLightMode()">
+      <span class="drawer-toggle-label">☀️ Light Mode</span>
+      <div class="toggle-switch ${isLight ? 'on' : ''}" id="light-mode-switch"></div>
     </button>
-    <div id="color-themes-content" style="display:none;">
-      <button class="drawer-toggle-row" style="padding-left:20px" onclick="toggleWoodTheme()">
-        <span class="drawer-toggle-label">Wood Theme</span>
-        <div class="toggle-switch ${isWood ? 'on' : ''}"></div>
-      </button>
-      <button class="drawer-toggle-row" style="padding-left:20px" onclick="toggleLightMode()">
-        <span class="drawer-toggle-label">☀️ Light Mode</span>
-        <div class="toggle-switch ${isLight ? 'on' : ''}" id="light-mode-switch"></div>
-      </button>
-    </div>
 
     <div class="drawer-divider"></div>
 
     <button class="drawer-item danger" onclick="toggleDangerZone()" id="danger-zone-toggle">
-      <span class="drawer-item-text">Danger Zone</span>
+      <span class="drawer-item-text">⚠️ Danger Zone</span>
       <span class="drawer-item-arrow" id="danger-arrow">›</span>
     </button>
     <div id="danger-zone-content" style="display:none;">
-      <button class="drawer-item danger" style="padding-left:20px" onclick="clearTodayData()">
-        <span class="drawer-item-text">Clear Today's Data</span>
+      <button class="drawer-item danger" style="padding-left:20px" onclick="dangerConfirm('Edit a Day','View and edit past habit data',showDateCalendar)">
+        <span class="drawer-item-text">📅 Edit a Day</span>
       </button>
-      <button class="drawer-item danger" style="padding-left:20px" onclick="resetAllData()">
-        <span class="drawer-item-text">Reset All Data</span>
+      <button class="drawer-item danger" style="padding-left:20px" onclick="dangerConfirm('Clear Today\\'s Data','This will erase all of today\\'s habit completions',clearTodayData)">
+        <span class="drawer-item-text">🗑 Clear Today's Data</span>
+      </button>
+      <button class="drawer-item danger" style="padding-left:20px" onclick="dangerConfirm('Reset ALL Data','Every habit record and gratitude entry will be permanently deleted. This cannot be undone.',resetAllData)">
+        <span class="drawer-item-text">💥 Reset All Data</span>
       </button>
     </div>
   `;
+}
+
+function dangerConfirm(title, description, action) {
+  document.getElementById('danger-confirm-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'danger-confirm-overlay';
+  overlay.className = 'hep-overlay';
+  overlay.innerHTML = `
+    <div class="hep-modal danger-confirm-modal">
+      <div class="danger-confirm-icon">⚠️</div>
+      <div class="danger-confirm-title">${title}</div>
+      <div class="danger-confirm-desc">${description}</div>
+      <div class="danger-confirm-check-row">
+        <input type="checkbox" id="danger-confirm-check" class="danger-confirm-check"/>
+        <label for="danger-confirm-check" class="danger-confirm-check-label">I understand this cannot be undone</label>
+      </div>
+      <div class="danger-confirm-btns">
+        <button class="danger-confirm-cancel" onclick="document.getElementById('danger-confirm-overlay')?.remove()">Cancel</button>
+        <button class="danger-confirm-go" onclick="
+          if(!document.getElementById('danger-confirm-check').checked){
+            document.getElementById('danger-confirm-check').style.outline='2px solid #f87171';return;
+          }
+          document.getElementById('danger-confirm-overlay')?.remove();
+          (${action.toString()})();
+        ">Confirm</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
 function toggleColorThemes() {
@@ -4598,6 +4864,15 @@ function toggleDangerZone() {
   const open = content.style.display === 'none';
   content.style.display = open ? 'block' : 'none';
   arrow.textContent = open ? '⌄' : '›';
+}
+
+function toggleWellnessSurveys() {
+  const content = document.getElementById('wellness-surveys-content');
+  const arrow = document.getElementById('wellness-surveys-arrow');
+  if (!content) return;
+  const open = content.style.display === 'none';
+  content.style.display = open ? 'block' : 'none';
+  if (arrow) arrow.textContent = open ? '⌄' : '›';
 }
 
 // ── DRAWER CALENDAR ──────────────────────────────────────
@@ -4809,8 +5084,9 @@ function resetAllData() {
   };
 }
 
-// ── PULL TO REFRESH ──────────────────────────────────────
+// ── PULL TO REFRESH — DISABLED (user removed spinner circle) ──
 (function initPullToRefresh() {
+  return; // disabled
   const threshold = window.innerHeight * 0.10;
   let startY = 0;
   let pulling = false;
