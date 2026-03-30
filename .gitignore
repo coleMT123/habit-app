@@ -30,3 +30,14 @@ build/
 
 # Claude Code local files
 .claude/
+
+# Extra secrets hardening
+*.pem
+*.key
+*.p12
+serviceAccount*.json
+*credential*.json
+secrets.json
+secrets/
+private/
+.npmrc
