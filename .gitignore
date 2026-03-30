@@ -1,0 +1,33 @@
+# Firebase secrets — NEVER commit
+firebase-config.js
+.env
+.env.local
+.env*.local
+*.env
+
+# Firebase CLI cache
+.firebase/
+.firebaserc
+
+# Node
+node_modules/
+npm-debug.log*
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V7
+.Trashes
+*.icloud
+
+# Editor
+.vscode/
+.idea/
+
+# Build output
+dist/
+build/
+
+# Claude Code local files
+.claude/
