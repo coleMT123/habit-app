@@ -361,10 +361,15 @@ async function syncToCloud() {
   const lbl = document.getElementById('sync-label');
   if (lbl) lbl.textContent = 'Syncing…';
   try {
+    // Only sync customHabits if user has actually saved some — prevents
+    // an empty localStorage (fresh browser / new device) from wiping cloud habits
+    const _rawCustomHabits = JSON.parse(localStorage.getItem('customHabits') || 'null');
+    const _customHabitsToSync = (_rawCustomHabits && _rawCustomHabits.length > 0)
+      ? _rawCustomHabits : null;
     await _fbDb.collection('users').doc(_currentUser.uid).set({
       habitData:          JSON.parse(localStorage.getItem('habitData')    || '{}'),
       grateful:           JSON.parse(localStorage.getItem('grateful')     || '{}'),
-      customHabits:       JSON.parse(localStorage.getItem('customHabits') || '[]'),
+      ...((_customHabitsToSync !== null) ? { customHabits: _customHabitsToSync } : {}),
       habitOrder:         JSON.parse(localStorage.getItem('habitOrder')   || '[]'),
       colorTheme:         localStorage.getItem('colorTheme') || 'default',
       lightMode:          localStorage.getItem('lightMode') || 'false',
@@ -414,7 +419,11 @@ async function loadFromCloud() {
     const d = doc.data();
     if (d.habitData)    localStorage.setItem('habitData',    JSON.stringify(d.habitData));
     if (d.grateful)     localStorage.setItem('grateful',     JSON.stringify(d.grateful));
-    if (d.customHabits) localStorage.setItem('customHabits', JSON.stringify(d.customHabits));
+    // Only restore customHabits if cloud has real habits (non-empty array)
+    // This prevents empty-array syncs from wiping the user's habit list
+    if (d.customHabits && d.customHabits.length > 0) {
+      localStorage.setItem('customHabits', JSON.stringify(d.customHabits));
+    }
     if (d.habitOrder)   localStorage.setItem('habitOrder',   JSON.stringify(d.habitOrder));
     if (d.colorTheme)   localStorage.setItem('colorTheme',   d.colorTheme);
     if (d.lightMode)    localStorage.setItem('lightMode',    d.lightMode);
@@ -1057,7 +1066,10 @@ function getHabits() {
 
 function saveHabitsConfig(habits) {
   localStorage.setItem('customHabits', JSON.stringify(habits));
-  queueSync();
+  // Sync habit structure immediately (not debounced) so habits are
+  // never lost if the user closes the app quickly after editing
+  clearTimeout(_syncTimer);
+  syncToCloud();
 }
 
 function toggleHabitEditMode() {
