@@ -5,9 +5,8 @@ firebase-config.js
 .env*.local
 *.env
 
-# Firebase CLI cache
+# Firebase CLI cache (not the config files themselves)
 .firebase/
-.firebaserc
 
 # Node
 node_modules/
